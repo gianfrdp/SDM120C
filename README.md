@@ -1,7 +1,7 @@
 # SDM120C
 SDM120C ModBus RTU client to read EASTRON SDM120C smart mini power meter registers
 
-It depends on libmodbus (http://www.libmodbus.org)
+It depends on libmodbus (http://libmodbus.org)
 
 To compile
   make clean && make
