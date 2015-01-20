@@ -6,6 +6,7 @@ It depends on libmodbus (http://www.libmodbus.org)
 To compile
   make clean && make
 
+<PRE>
 Usage: sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-m] [-b baud_rate] device
        sdm120c [-a address] [-d] -s new_address device
        sdm120c [-a address] [-d] -r baud_rate device
@@ -29,3 +30,4 @@ where
         device          Serial device, i.e. /dev/ttyUSB0
 
 Serial device is required. When no parameter is passed, retrives all values
+</PRE>
