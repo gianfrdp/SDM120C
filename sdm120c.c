@@ -72,9 +72,9 @@ void usage(char* program) {
     printf("\t-c \t\tGet current (A)\n");
     printf("\t-f \t\tGet frequency (Hz)\n");
     printf("\t-g \t\tGet power factor\n");
-    printf("\t-e \t\tGet exported energy (kWh)\n");
-    printf("\t-i \t\tGet imported energy (kWh)\n");
-    printf("\t-t \t\tGet total energy (kWh)\n");
+    printf("\t-e \t\tGet exported energy (Wh)\n");
+    printf("\t-i \t\tGet imported energy (Wh)\n");
+    printf("\t-t \t\tGet total energy (Wh)\n");
     printf("\t-d \t\tDebug\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
