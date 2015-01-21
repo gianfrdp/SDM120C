@@ -19,9 +19,9 @@ where
         -c              Get current (A)
         -f              Get frequency (Hz)
         -g              Get power factor
-        -e              Get exported energy (kWh)
-        -i              Get imported energy (kWh)
-        -t              Get total energy (kWh)
+        -e              Get exported energy (Wh)
+        -i              Get imported energy (Wh)
+        -t              Get total energy (Wh)
         -d              Debug
         -b baud_rate    Use baud_rate serial port speed (1200, 2400, 4800, 9600)
                         Default: 2400
