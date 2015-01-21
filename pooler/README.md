@@ -13,9 +13,9 @@ then add in /etc/rc.local
 <PRE>
 touch /run/shm/metern1.txt
 chown www-data:www-data /run/shm/metern1.txt
-
 pooler485 1 9600 /dev/ttyUSB0&
 </PRE>
+where 1 is RS485 address (and meterN ID), 9600 port speed, /dev/ttyUSB0 is USB-RS485 device
 
 In meter configuration use
 <PRE>more /run/shm/metern1.txt | egrep "^1\(" | grep "*Wh)"</PRE>
