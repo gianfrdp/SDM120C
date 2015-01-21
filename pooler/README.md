@@ -22,3 +22,8 @@ In meter configuration use
 for energy and
 <PRE>more /run/shm/metern1.txt  | egrep "^1\(" | grep "*W)"</PRE>
 for live power
+
+You can use more meters on the same bus, setting meters with different addresses.
+MeterN configuration is the same, dimply change 1 with 2, 3, etc.
+
+NOTE: meterN ID must be equal to RS485 address
