@@ -11,8 +11,8 @@ To use pooler485.sh, create a symbolic link
 </PRE>
 then add in /etc/rc.local
 <PRE>
-touch /run/shm/metern2.txt
-chown www-data:www-data /run/shm/metern2.txt
+touch /run/shm/metern1.txt
+chown www-data:www-data /run/shm/metern1.txt
 
 pooler485 1 9600 /dev/ttyUSB0&
 </PRE>
