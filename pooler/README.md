@@ -1,5 +1,6 @@
-These are poolers for meterN (http://metern.org/) to collect and render data
-There 2 blocks of files:
+These are poolers for meterN (http://metern.org/) to collect and render data.
+
+There are 2 blocks of files:
  1. pooler485.php and poolmeters485.sh
  2. pooler485.sh
 
