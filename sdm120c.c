@@ -321,11 +321,13 @@ int main(int argc, char* argv[])
         device = argv[optind];
     }
 
+	/*
     if (count_param > 1 && metern_flag == 1) {
         fprintf(stderr, "Only one of the parameters between -p, -v, -c, -f, -g, -l, -n, -e, -i or -t is allowed with -m\n\n");
         usage(argv[0]);
         exit(EXIT_FAILURE);
     }
+	*/
     
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
@@ -356,7 +358,7 @@ int main(int argc, char* argv[])
     response_timeout.tv_usec = 0;
     modbus_set_response_timeout(ctx, &response_timeout);
 
-    //modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
+    modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
                       
     if (debug_flag == 1) {
         modbus_set_debug(ctx, 1);
@@ -442,7 +444,7 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%4.2f*V)\n", device_address, voltage);
         } else {
-            printf("Voltage: %4.2f V \n\n",voltage);
+            printf("Voltage: %4.2f V \n",voltage);
         }
     }
 
@@ -460,7 +462,7 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%5.2f*W)\n", device_address, power);
         } else {
-            printf("Power: %5.2f W \n\n", power);
+            printf("Power: %5.2f W \n", power);
         }
     }
 
@@ -469,7 +471,7 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%5.2f*VA)\n", device_address, apower);
         } else {
-            printf("Active Apparent Power: %5.2f VA \n\n", apower);
+            printf("Active Apparent Power: %5.2f VA \n", apower);
         }
     }
 
@@ -478,7 +480,7 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%5.2f*VAr)\n", device_address, rapower);
         } else {
-            printf("Reactive Apparent Power: %5.2f VAr \n\n", rapower);
+            printf("Reactive Apparent Power: %5.2f VAr \n", rapower);
         }
     }
 
@@ -487,7 +489,7 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%4.2f*-)\n", device_address, pf);
         } else {
-            printf("Power Factor: %4.2f \n\n", pf);
+            printf("Power Factor: %4.2f \n", pf);
         }
     }
 
@@ -496,34 +498,34 @@ int main(int argc, char* argv[])
         if (metern_flag == 1) {
             printf("%d(%4.2f*Hz)\n", device_address, freq);
         } else {
-            printf("Frequency: %4.2f Hz \n\n", freq);
+            printf("Frequency: %4.2f Hz \n", freq);
         }
     }
 
     if (import_flag == 1) {
-        imp_energy = getMeasure(ctx, IAENERGY);
+        imp_energy = getMeasure(ctx, IAENERGY) * 1000;
         if (metern_flag == 1) {
-            printf("%d(%d*Wh)\n", device_address, (int)(imp_energy*1000));
+            printf("%d(%d*Wh)\n", device_address, (int)(imp_energy));
         } else {
-            printf("Import Active Energy: %5.2f kWh \n\n", imp_energy);
+            printf("Import Active Energy: %d Wh \n", (int)(imp_energy));
         }
     }
 
     if (export_flag == 1) {
-        exp_energy = getMeasure(ctx, EAENERGY);
+        exp_energy = getMeasure(ctx, EAENERGY) * 1000;
         if (metern_flag == 1) {
-            printf("%d(%d*Wh)\n", device_address, (int)(exp_energy*1000));
+            printf("%d(%d*Wh)\n", device_address, (int)(exp_energy));
         } else {
-            printf("Export Active Energy: %5.2f kWh \n\n", exp_energy);
+            printf("Export Active Energy: %d Wh \n", (int)(exp_energy));
         }
     }
 
     if (total_flag == 1) {
-        tot_energy = getMeasure(ctx, TAENERGY);
+        tot_energy = getMeasure(ctx, TAENERGY) * 1000;
         if (metern_flag == 1) {
-            printf("%d(%d*Wh)\n", device_address, (int)(tot_energy*1000));
+            printf("%d(%d*Wh)\n", device_address, (int)(tot_energy));
         } else {
-            printf("Total Active Energy: %5.2f kWh \n\n", tot_energy);
+            printf("Total Active Energy: %d Wh \n", (int)(tot_energy));
         }
     }
 
