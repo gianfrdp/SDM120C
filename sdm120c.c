@@ -135,6 +135,7 @@ void changeAddress(modbus_t *ctx, int new_addr)
     int n = modbus_write_registers(ctx, DEVICE_ID, nb, tab_reg);
     if (n != -1) {
         printf("New address %d\n", new_addr);
+        printf("You have to restart the meter for apply changes\n");
     } else {
         printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
         modbus_close(ctx);
@@ -158,6 +159,7 @@ void changeBaudRate(modbus_t *ctx, int new_rate)
     int n = modbus_write_registers(ctx, BAUD_RATE, nb, tab_reg);
     if (n != -1) {
         printf("New baud_rate %d\n", new_rate);
+        printf("You have to restart the meter for apply changes\n");
     } else {
         printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
         modbus_close(ctx);

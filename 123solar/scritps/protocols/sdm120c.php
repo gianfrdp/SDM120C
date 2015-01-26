@@ -1,5 +1,5 @@
 <?php
-//if(!defined('checkaccess')){die('Direct access not permitted');}
+if(!defined('checkaccess')){die('Direct access not permitted');}
 // sdm120c is a command line program for reading the parameters out of EASTRON SDM120C ModBus Smart meter.
 // http://github.com/gianfrdp/SDM120C
 
