@@ -56,12 +56,12 @@ extern "C" {
 #define BR4800 1
 #define BR9600 2
 
-const char *version = "1.0.2";
+const char *version = "1.0.3";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n\n");
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-m] [-b baud_rate] device\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] device\n", program);
     printf("       %s [-a address] [-d] -s new_address device\n", program);
     printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
     printf("where\n");
@@ -72,14 +72,15 @@ void usage(char* program) {
     printf("\t-c \t\tGet current (A)\n");
     printf("\t-f \t\tGet frequency (Hz)\n");
     printf("\t-g \t\tGet power factor\n");
-    printf("\t-e \t\tGet exported energy (kWh)\n");
-    printf("\t-i \t\tGet imported energy (kWh)\n");
-    printf("\t-t \t\tGet total energy (kWh)\n");
+    printf("\t-e \t\tGet exported energy (Wh)\n");
+    printf("\t-i \t\tGet imported energy (Wh)\n");
+    printf("\t-t \t\tGet total energy (Wh)\n");
     printf("\t-d \t\tDebug\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
+    printf("\t-q \t\tOutput values in compact mode\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
 }
@@ -183,6 +184,7 @@ int main(int argc, char* argv[])
     int baud_rate      = 0;
     int new_baud_rate  = 0;
     int metern_flag    = 0;
+    int compact_flag   = 0;
     int debug_flag     = 0;
     int count_param    = 0;
     int index;
@@ -197,7 +199,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgilmnpr:s:tv")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgilmnpqr:s:tv")) != -1) {
         switch (c)
         {
             case 'a':
@@ -289,6 +291,9 @@ int main(int argc, char* argv[])
             case 'm':
                 metern_flag = 1;
                 break;
+            case 'q':
+                compact_flag = 1;
+                break;
             case '?':
                 if (optopt == 'a' || optopt == 'b' || optopt == 's') {
                     fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -321,14 +326,19 @@ int main(int argc, char* argv[])
         device = argv[optind];
     }
 
-	/*
+    /*
     if (count_param > 1 && metern_flag == 1) {
         fprintf(stderr, "Only one of the parameters between -p, -v, -c, -f, -g, -l, -n, -e, -i or -t is allowed with -m\n\n");
         usage(argv[0]);
         exit(EXIT_FAILURE);
     }
-	*/
-    
+    */
+    if (compact_flag == 1 && metern_flag == 1) {
+        fprintf(stderr, "Parameter -m and -q are mutually exclusive\n\n");
+        usage(argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
@@ -443,6 +453,8 @@ int main(int argc, char* argv[])
         voltage = getMeasure(ctx, VOLTAGE);
         if (metern_flag == 1) {
             printf("%d(%4.2f*V)\n", device_address, voltage);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", voltage);
         } else {
             printf("Voltage: %4.2f V \n",voltage);
         }
@@ -452,8 +464,10 @@ int main(int argc, char* argv[])
         current  = getMeasure(ctx, CURRENT);
         if (metern_flag == 1) {
             printf("%d(%4.2f*A)\n", device_address, current);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", current);
         } else {
-            printf("Current: %4.2f A \n\n",current);
+            printf("Current: %4.2f A \n",current);
         }
     }
 
@@ -461,6 +475,8 @@ int main(int argc, char* argv[])
         power = getMeasure(ctx, POWER);
         if (metern_flag == 1) {
             printf("%d(%5.2f*W)\n", device_address, power);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", power);
         } else {
             printf("Power: %5.2f W \n", power);
         }
@@ -470,6 +486,8 @@ int main(int argc, char* argv[])
         apower = getMeasure(ctx, APOWER);
         if (metern_flag == 1) {
             printf("%d(%5.2f*VA)\n", device_address, apower);
+        } else if (compact_flag == 1) {
+            printf("%5.2f ", apower);
         } else {
             printf("Active Apparent Power: %5.2f VA \n", apower);
         }
@@ -479,6 +497,8 @@ int main(int argc, char* argv[])
         rapower = getMeasure(ctx, RAPOWER);
         if (metern_flag == 1) {
             printf("%d(%5.2f*VAr)\n", device_address, rapower);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", rapower);
         } else {
             printf("Reactive Apparent Power: %5.2f VAr \n", rapower);
         }
@@ -488,6 +508,8 @@ int main(int argc, char* argv[])
         pf = getMeasure(ctx, PFACTOR);
         if (metern_flag == 1) {
             printf("%d(%4.2f*-)\n", device_address, pf);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", pf);
         } else {
             printf("Power Factor: %4.2f \n", pf);
         }
@@ -497,6 +519,8 @@ int main(int argc, char* argv[])
         freq = getMeasure(ctx, FREQUENCY);
         if (metern_flag == 1) {
             printf("%d(%4.2f*Hz)\n", device_address, freq);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", freq);
         } else {
             printf("Frequency: %4.2f Hz \n", freq);
         }
@@ -506,6 +530,8 @@ int main(int argc, char* argv[])
         imp_energy = getMeasure(ctx, IAENERGY) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(imp_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) imp_energy);
         } else {
             printf("Import Active Energy: %d Wh \n", (int)(imp_energy));
         }
@@ -515,6 +541,8 @@ int main(int argc, char* argv[])
         exp_energy = getMeasure(ctx, EAENERGY) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(exp_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) exp_energy);
         } else {
             printf("Export Active Energy: %d Wh \n", (int)(exp_energy));
         }
@@ -524,11 +552,16 @@ int main(int argc, char* argv[])
         tot_energy = getMeasure(ctx, TAENERGY) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(tot_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) tot_energy);
         } else {
             printf("Total Active Energy: %d Wh \n", (int)(tot_energy));
         }
     }
 
+    if (compact_flag == 1) {
+        printf("\n");
+    }
 
     modbus_close(ctx);
     modbus_free(ctx);
