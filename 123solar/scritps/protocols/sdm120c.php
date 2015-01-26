@@ -42,7 +42,12 @@ $KWHT = $dataarray[5];
 settype($KWHT, 'float');
 $KWHT = $KWHT/1000;
 
-$RET = 'OK';
+if ($KWHT != 0) {
+  $RET = 'OK';
+} else {
+  $RET = 'NOK';
+}
+
 
 //echo " $G1V \n $G1A \n $G1P \n $FRQ \n $EFF \n $KWHT\n";
 
