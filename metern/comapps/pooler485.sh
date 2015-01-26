@@ -16,15 +16,17 @@ while [ true ]; do
     do
 	#((ID++))
 	ID=$ADDRESS
-	CMD="sdm120c -a ${ADDRESS} -b ${BAUD_RATE} -i -p -m ${DEVICE}"
+	CMD="sdm120c -a ${ADDRESS} -b ${BAUD_RATE} -i -p -q ${DEVICE}"
 
 	#echo $CMD
 	
 	VALUE=`$CMD`
-	#POWER=$(echo ${VALUE} | grep "Power:\ " | cut -d: -f2 | cut -d\  -f2)
-	#ENERGY=$(echo ${VALUE} | grep "Import Active Energy:\ " | cut -d: -f3 | cut -d\  -f2)
-	#echo -e "$ID($POWER*W)\n$ID($ENERGY*Wh)"  > /run/shm/metern${ADDRESS}.txt
-	echo -e "$VALUE"  > /run/shm/metern${ADDRESS}.txt
+	POWER=$(echo ${VALUE} | cut -d\  -f1)
+	ENERGY=$(echo ${VALUE} | cut -d\  -f2)
+	if [ "$ENERGY" != "0" -a x"$ENERGY" != x ]; then
+	    echo -e "$ID($POWER*W)\n$ID($ENERGY*Wh)" > /run/shm/metern${ADDRESS}.txt
+	    #echo -e "$VALUE"  > /run/shm/metern${ADDRESS}.txt
+	fi
 	sleep 2s
 
     done
