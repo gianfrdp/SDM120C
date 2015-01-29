@@ -7,7 +7,7 @@ To compile
   make clean && make
 
 <PRE>
-Usage: sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] device
+Usage: sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] device
        sdm120c [-a address] [-d] -s new_address device
        sdm120c [-a address] [-d] -r baud_rate device
 
@@ -28,6 +28,7 @@ where
         -r baud_rate    Set baud_rate meter speed (1200, 2400, 4800, 9600)
         -m              Output values in IEC 62056 format ID(VALUE*UNIT)
         -q              Output values in compact mode
+        -z num_retries  Try to read max num_retries times on bus before exiting with error
         device          Serial device, i.e. /dev/ttyUSB0
 
 Serial device is required. When no parameter is passed, retrives all values
