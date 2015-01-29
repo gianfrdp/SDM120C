@@ -23,9 +23,7 @@ while [ true ]; do
 	VALUE=`$CMD`
 	POWER=$(echo ${VALUE} | cut -d\  -f1)
 	ENERGY=$(echo ${VALUE} | cut -d\  -f2)
-	if [ "$ENERGY" != "0" -a x"$ENERGY" != x -a
-	     "$POWER" != "0" -a x"$POWER" != x
-	   ]; then
+	if [ "$ENERGY" != "0" -a x"$ENERGY" != x -a "$POWER" != "0" -a x"$POWER" != x ]; then
 	    echo -e "$ID($POWER*W)\n$ID($ENERGY*Wh)" > /run/shm/metern${ADDRESS}.txt
 	    #echo -e "$VALUE"  > /run/shm/metern${ADDRESS}.txt
 	fi
