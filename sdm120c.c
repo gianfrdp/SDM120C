@@ -56,12 +56,15 @@ extern "C" {
 #define BR4800 1
 #define BR9600 2
 
-const char *version = "1.0.3";
+#define MAX_RETRIES 100
+
+int debug_flag     = 0;
+const char *version = "1.0.4";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n\n");
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] device\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] device\n", program);
     printf("       %s [-a address] [-d] -s new_address device\n", program);
     printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
     printf("where\n");
@@ -81,32 +84,48 @@ void usage(char* program) {
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
+    printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting with error\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
 }
 
-float getMeasure(modbus_t *ctx, int address) {
+float getMeasure(modbus_t *ctx, int address, int retries) {
 
     int nb = 2;
     uint16_t tab_reg[nb * sizeof(uint16_t)];
     int rc;
     int i;
+    int j = 0;
+    int exit_loop = 0;
     
-    //printf("Register Address %d [%04X]\n", 30000+address+1, address); 
-    rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
-
+    while (j < retries && exit_loop == 0) {
+      j++;
+      
+      if (debug_flag == 1) {
+         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address); 
+      }
+      rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
+      
+      if (rc == -1) {
+        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        modbus_flush(ctx);
+        usleep(2500);
+      } else {
+        exit_loop = 1;
+      }
+    }
+    
     if (rc == -1) {
-      fprintf(stderr, "ERROR %s\n", modbus_strerror(errno));
       modbus_close(ctx);
       modbus_free(ctx);
       exit(EXIT_FAILURE);
     }
     
-    /*
-    for (i=0; i < rc; i++) {
-      printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
+    if (debug_flag == 1) {
+       for (i=0; i < rc; i++) {
+          printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
+       }
     }
-    */
 
     // BUG in libmodbus: swap LSB and MSB
     uint16_t tmp1 = tab_reg[0];
@@ -187,8 +206,8 @@ int main(int argc, char* argv[])
     int new_baud_rate  = 0;
     int metern_flag    = 0;
     int compact_flag   = 0;
-    int debug_flag     = 0;
     int count_param    = 0;
+    int num_retries    = 1;
     int index;
     int c;
     char *device = NULL;
@@ -201,7 +220,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgilmnpqr:s:tv")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgilmnpqr:s:tvz:")) != -1) {
         switch (c)
         {
             case 'a':
@@ -296,6 +315,13 @@ int main(int argc, char* argv[])
             case 'q':
                 compact_flag = 1;
                 break;
+            case 'z':
+                num_retries = atoi(optarg);
+                if (!(0 < num_retries && num_retries <= MAX_RETRIES)) {
+                    fprintf (stderr, "num_reties must be between 1 and %d.\n", MAX_RETRIES);
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case '?':
                 if (optopt == 'a' || optopt == 'b' || optopt == 's') {
                     fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -321,20 +347,15 @@ int main(int argc, char* argv[])
 
     if ((optind+1) > argc) {
         /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
-        //printf("optind = %d, argc = %d\n", optind, argc);
+        if (debug_flag == 1) {
+           printf("optind = %d, argc = %d\n", optind, argc);
+        }
         usage(argv[0]);
         exit(EXIT_FAILURE);
     } else {
         device = argv[optind];
     }
 
-    /*
-    if (count_param > 1 && metern_flag == 1) {
-        fprintf(stderr, "Only one of the parameters between -p, -v, -c, -f, -g, -l, -n, -e, -i or -t is allowed with -m\n\n");
-        usage(argv[0]);
-        exit(EXIT_FAILURE);
-    }
-    */
     if (compact_flag == 1 && metern_flag == 1) {
         fprintf(stderr, "Parameter -m and -q are mutually exclusive\n\n");
         usage(argv[0]);
@@ -452,7 +473,7 @@ int main(int argc, char* argv[])
     }
 
     if (volt_flag == 1) {
-        voltage = getMeasure(ctx, VOLTAGE);
+        voltage = getMeasure(ctx, VOLTAGE, num_retries);
         if (metern_flag == 1) {
             printf("%d(%4.2f*V)\n", device_address, voltage);
         } else if (compact_flag == 1) {
@@ -463,7 +484,7 @@ int main(int argc, char* argv[])
     }
 
     if (current_flag == 1) {
-        current  = getMeasure(ctx, CURRENT);
+        current  = getMeasure(ctx, CURRENT, num_retries);
         if (metern_flag == 1) {
             printf("%d(%4.2f*A)\n", device_address, current);
         } else if (compact_flag == 1) {
@@ -474,7 +495,7 @@ int main(int argc, char* argv[])
     }
 
      if (power_flag == 1) {
-        power = getMeasure(ctx, POWER);
+        power = getMeasure(ctx, POWER, num_retries);
         if (metern_flag == 1) {
             printf("%d(%5.2f*W)\n", device_address, power);
         } else if (compact_flag == 1) {
@@ -485,7 +506,7 @@ int main(int argc, char* argv[])
     }
 
     if (apower_flag == 1) {
-        apower = getMeasure(ctx, APOWER);
+        apower = getMeasure(ctx, APOWER, num_retries);
         if (metern_flag == 1) {
             printf("%d(%5.2f*VA)\n", device_address, apower);
         } else if (compact_flag == 1) {
@@ -496,7 +517,7 @@ int main(int argc, char* argv[])
     }
 
     if (rapower_flag == 1) {
-        rapower = getMeasure(ctx, RAPOWER);
+        rapower = getMeasure(ctx, RAPOWER, num_retries);
         if (metern_flag == 1) {
             printf("%d(%5.2f*VAr)\n", device_address, rapower);
         } else if (compact_flag == 1) {
@@ -507,7 +528,7 @@ int main(int argc, char* argv[])
     }
 
     if (pf_flag == 1) {
-        pf = getMeasure(ctx, PFACTOR);
+        pf = getMeasure(ctx, PFACTOR, num_retries);
         if (metern_flag == 1) {
             printf("%d(%4.2f*-)\n", device_address, pf);
         } else if (compact_flag == 1) {
@@ -518,7 +539,7 @@ int main(int argc, char* argv[])
     }
 
     if (freq_flag == 1) {
-        freq = getMeasure(ctx, FREQUENCY);
+        freq = getMeasure(ctx, FREQUENCY, num_retries);
         if (metern_flag == 1) {
             printf("%d(%4.2f*Hz)\n", device_address, freq);
         } else if (compact_flag == 1) {
@@ -529,7 +550,7 @@ int main(int argc, char* argv[])
     }
 
     if (import_flag == 1) {
-        imp_energy = getMeasure(ctx, IAENERGY) * 1000;
+        imp_energy = getMeasure(ctx, IAENERGY, num_retries) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(imp_energy));
         } else if (compact_flag == 1) {
@@ -540,7 +561,7 @@ int main(int argc, char* argv[])
     }
 
     if (export_flag == 1) {
-        exp_energy = getMeasure(ctx, EAENERGY) * 1000;
+        exp_energy = getMeasure(ctx, EAENERGY, num_retries) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(exp_energy));
         } else if (compact_flag == 1) {
@@ -551,7 +572,7 @@ int main(int argc, char* argv[])
     }
 
     if (total_flag == 1) {
-        tot_energy = getMeasure(ctx, TAENERGY) * 1000;
+        tot_energy = getMeasure(ctx, TAENERGY, num_retries) * 1000;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(tot_energy));
         } else if (compact_flag == 1) {
