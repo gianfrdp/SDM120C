@@ -66,7 +66,7 @@ void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] device\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] [-j seconds] device\n", program);
     printf("       %s [-a address] [-d] -s new_address device\n", program);
     printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
     printf("where\n");
