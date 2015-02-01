@@ -31,6 +31,7 @@ extern "C" {
 #include <ctype.h>
 #include <getopt.h>
 
+#include <modbus-version.h>
 #include <modbus.h>
 
 #define DEFAULT_RATE 2400
@@ -59,11 +60,12 @@ extern "C" {
 #define MAX_RETRIES 100
 
 int debug_flag     = 0;
-const char *version = "1.0.4";
+const char *version = "1.1.0";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
-    printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n\n");
+    printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
+    printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
     printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] device\n", program);
     printf("       %s [-a address] [-d] -s new_address device\n", program);
     printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
@@ -84,7 +86,9 @@ void usage(char* program) {
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
-    printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting with error\n");
+    printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
+    printf("\t\t\twith error. Default: 1\n");
+    printf("\t-j seconds\tResponse timeout. Default: 2\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
 }
@@ -127,7 +131,7 @@ float getMeasure(modbus_t *ctx, int address, int retries) {
        }
     }
 
-    // BUG in libmodbus: swap LSB and MSB
+    // swap LSB and MSB
     uint16_t tmp1 = tab_reg[0];
     uint16_t tmp2 = tab_reg[1];
     tab_reg[0] = tmp2;
@@ -145,7 +149,7 @@ void changeAddress(modbus_t *ctx, int new_addr)
     uint16_t tab_reg[nb * sizeof(uint16_t)];
 
     modbus_set_float((float) new_addr, &tab_reg[0]);
-    // BUG in libmodbus: swap LSB and MSB
+    // swap LSB and MSB
     uint16_t tmp1 = tab_reg[0];
     uint16_t tmp2 = tab_reg[1];
     tab_reg[0] = tmp2;
@@ -208,6 +212,11 @@ int main(int argc, char* argv[])
     int compact_flag   = 0;
     int count_param    = 0;
     int num_retries    = 1;
+#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1
+    uint32_t resp_timeout = 2;
+#else
+    time_t resp_timeout   = 2;
+#endif
     int index;
     int c;
     char *device = NULL;
@@ -220,7 +229,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgilmnpqr:s:tvz:")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpqr:s:tvz:")) != -1) {
         switch (c)
         {
             case 'a':
@@ -322,6 +331,9 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'j':
+                resp_timeout = atoi(optarg);
+                break;
             case '?':
                 if (optopt == 'a' || optopt == 'b' || optopt == 's') {
                     fprintf (stderr, "Option -%c requires an argument.\n", optopt);
@@ -372,14 +384,19 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    //modbus_set_debug(ctx, 1);
-    /*
-    struct timeval timeout;
-    timeout.tv_sec = 0;
-    timeout.tv_usec =  10000;
-    modbus_set_byte_timeout(ctx, &timeout);
-    */
+#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1
+
+    uint32_t old_response_to_sec;
+    uint32_t old_response_to_usec;
+
+    modbus_get_response_timeout(ctx, &old_response_to_sec, &old_response_to_usec);
     
+    // Considering to get those values from command line
+    modbus_set_byte_timeout(ctx, -1, 0);
+    modbus_set_response_timeout(ctx, resp_timeout, 0);
+
+#else
+
     struct timeval old_response_timeout;
     struct timeval response_timeout;
     
@@ -387,9 +404,11 @@ int main(int argc, char* argv[])
     response_timeout.tv_sec = -1;
     response_timeout.tv_usec = 0;
     modbus_set_byte_timeout(ctx, &response_timeout);
-    response_timeout.tv_sec = 2;
+    response_timeout.tv_sec = resp_timeout;
     response_timeout.tv_usec = 0;
     modbus_set_response_timeout(ctx, &response_timeout);
+
+#endif
 
     modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
                       
