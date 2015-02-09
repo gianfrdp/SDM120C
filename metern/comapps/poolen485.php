@@ -33,7 +33,7 @@ $meter_val = (int) exec($cmd);
 
 # workaround in case of blackout and meter value lesser than previuos value
 if ($meter_val < $last_val && ${'PASSO'.$metnum} - $last_val > 1000) {
-    $val_tot = $val_num;
+    $val_tot = $last_val;
 } else {
     $val_tot = $meter_val;
 }
