@@ -60,7 +60,7 @@ extern "C" {
 #define MAX_RETRIES 100
 
 int debug_flag     = 0;
-const char *version = "1.1.0";
+const char *version = "1.1.1";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
@@ -219,8 +219,9 @@ int main(int argc, char* argv[])
 #endif
     int index;
     int c;
-    char *device = NULL;
-    int speed = 0;
+    char *device       = NULL;
+    int speed          = 0;
+    int read_count     = 0;
 
     if (argc == 1) {
         usage(argv[0]);
@@ -489,10 +490,12 @@ int main(int argc, char* argv[])
         export_flag  = 1;
         import_flag  = 1;
         total_flag   = 1;
+        count_param  = power_flag + volt_flag + current_flag + freq_flag + pf_flag + export_flag + import_flag + total_flag;
     }
 
     if (volt_flag == 1) {
         voltage = getMeasure(ctx, VOLTAGE, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*V)\n", device_address, voltage);
         } else if (compact_flag == 1) {
@@ -504,6 +507,7 @@ int main(int argc, char* argv[])
 
     if (current_flag == 1) {
         current  = getMeasure(ctx, CURRENT, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*A)\n", device_address, current);
         } else if (compact_flag == 1) {
@@ -515,6 +519,7 @@ int main(int argc, char* argv[])
 
      if (power_flag == 1) {
         power = getMeasure(ctx, POWER, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*W)\n", device_address, power);
         } else if (compact_flag == 1) {
@@ -526,6 +531,7 @@ int main(int argc, char* argv[])
 
     if (apower_flag == 1) {
         apower = getMeasure(ctx, APOWER, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*VA)\n", device_address, apower);
         } else if (compact_flag == 1) {
@@ -537,6 +543,7 @@ int main(int argc, char* argv[])
 
     if (rapower_flag == 1) {
         rapower = getMeasure(ctx, RAPOWER, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*VAr)\n", device_address, rapower);
         } else if (compact_flag == 1) {
@@ -548,6 +555,7 @@ int main(int argc, char* argv[])
 
     if (pf_flag == 1) {
         pf = getMeasure(ctx, PFACTOR, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*-)\n", device_address, pf);
         } else if (compact_flag == 1) {
@@ -559,6 +567,7 @@ int main(int argc, char* argv[])
 
     if (freq_flag == 1) {
         freq = getMeasure(ctx, FREQUENCY, num_retries);
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*Hz)\n", device_address, freq);
         } else if (compact_flag == 1) {
@@ -570,6 +579,7 @@ int main(int argc, char* argv[])
 
     if (import_flag == 1) {
         imp_energy = getMeasure(ctx, IAENERGY, num_retries) * 1000;
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(imp_energy));
         } else if (compact_flag == 1) {
@@ -581,6 +591,7 @@ int main(int argc, char* argv[])
 
     if (export_flag == 1) {
         exp_energy = getMeasure(ctx, EAENERGY, num_retries) * 1000;
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(exp_energy));
         } else if (compact_flag == 1) {
@@ -592,6 +603,7 @@ int main(int argc, char* argv[])
 
     if (total_flag == 1) {
         tot_energy = getMeasure(ctx, TAENERGY, num_retries) * 1000;
+        read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(tot_energy));
         } else if (compact_flag == 1) {
@@ -601,9 +613,17 @@ int main(int argc, char* argv[])
         }
     }
 
+    if (read_count == count_param) {
+        printf(" OK\n");
+    } else {
+        printf(" NOK\n");
+    }
+    
+    /*
     if (compact_flag == 1) {
         printf("\n");
     }
+    */
 
     modbus_close(ctx);
     modbus_free(ctx);
