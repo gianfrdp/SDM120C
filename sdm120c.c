@@ -212,7 +212,7 @@ int main(int argc, char* argv[])
     int compact_flag   = 0;
     int count_param    = 0;
     int num_retries    = 1;
-#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1
+#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
     uint32_t resp_timeout = 2;
 #else
     time_t resp_timeout   = 2;
@@ -385,7 +385,7 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1
+#if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
 
     uint32_t old_response_to_sec;
     uint32_t old_response_to_usec;
