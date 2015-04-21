@@ -60,13 +60,13 @@ extern "C" {
 #define MAX_RETRIES 100
 
 int debug_flag     = 0;
-const char *version = "1.1.1";
+const char *version = "1.1.2";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] [-j seconds] device\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-P parity] [-z num_retries] [-j seconds] device\n", program);
     printf("       %s [-a address] [-d] -s new_address device\n", program);
     printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
     printf("where\n");
@@ -83,6 +83,7 @@ void usage(char* program) {
     printf("\t-d \t\tDebug\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
+    printf("\t-P parity \tUse parity (E, N, O)\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
@@ -220,8 +221,14 @@ int main(int argc, char* argv[])
     int index;
     int c;
     char *device       = NULL;
+    char *c_parity     = NULL;
     int speed          = 0;
     int read_count     = 0;
+
+    const char E_parity = 'E';
+    const char N_parity = 'N';
+    const char O_parity = 'O';
+    char parity         = E_parity;
 
     if (argc == 1) {
         usage(argv[0]);
@@ -230,7 +237,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpqr:s:tvz:")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:s:tvz:")) != -1) {
         switch (c)
         {
             case 'a':
@@ -292,6 +299,20 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'P':
+                c_parity = strdup(optarg);
+                if (strcmp(c_parity,"E") == 0) {
+                    parity = E_parity;
+                } else if (strcmp(c_parity,"N") == 0) {
+                    parity = N_parity;
+                } else if (strcmp(c_parity,"O") == 0) {
+                    parity = O_parity;
+                } else {
+                    fprintf (stderr, "Parity must be one of E, N, O\n");
+                    exit(EXIT_FAILURE);
+                }
+                break;
+            
             case 'r':
                 speed = atoi(optarg);
                 switch (speed) {
@@ -378,7 +399,7 @@ int main(int argc, char* argv[])
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
-    ctx = modbus_new_rtu(device, baud_rate, 'E', 8, 1);
+    ctx = modbus_new_rtu(device, baud_rate, parity, 8, 1);
 
     if (ctx == NULL) {
         fprintf(stderr, "Unable to create the libmodbus context\n");

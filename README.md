@@ -18,9 +18,9 @@ To compile
   make clean && make
 
 <PRE>
-Usage: sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-z num_retries] [-j seconds] device
-       sdm120c [-a address] [-d] -s new_address device
-       sdm120c [-a address] [-d] -r baud_rate device
+Usage: ./sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-P parity] [-z num_retries] [-j seconds] device
+       ./sdm120c [-a address] [-d] -s new_address device
+       ./sdm120c [-a address] [-d] -r baud_rate device
 
 where
         -a address      Meter number (between 1 and 247). Default: 1
@@ -36,6 +36,7 @@ where
         -d              Debug
         -b baud_rate    Use baud_rate serial port speed (1200, 2400, 4800, 9600)
                         Default: 2400
+        -P parity       Use parity (E, N, O)
         -r baud_rate    Set baud_rate meter speed (1200, 2400, 4800, 9600)
         -m              Output values in IEC 62056 format ID(VALUE*UNIT)
         -q              Output values in compact mode

@@ -1,7 +1,13 @@
 #!/usr/bin/php -f
 <?php
 // Credit Louviaux Jean-Marc 2015
+/*
+if (isset($_SERVER['REMOTE_ADDR'])) {
+    die('Direct access not permitted');
+}
+*/
 define('checkaccess', TRUE);
+include('../scripts/memory.php');
 include('../config/config_main.php');
 
 date_default_timezone_set($DTZ);
@@ -20,9 +26,22 @@ if (isset($argv[1])) {
 include("../config/config_met$metnum.php");
 $dir = '/run/shm';
 
-$memdata = file_get_contents('http://localhost/metern/programs/programtotal.php');
-$memory = json_decode($memdata, true);
+//$memdata = file_get_contents('http://localhost/metern/programs/programtotal.php');
+//$memory = json_decode($memdata, true);
 
+$memory = array();
+//echo "MEMORY = $MEMORY\n";
+@$shmid = shmop_open($MEMORY, 'a', 0, 0);
+if (!empty($shmid)) {
+        $size = shmop_size($shmid);
+        shmop_close($shmid);
+        $shmid = shmop_open($MEMORY, 'c', 0644, $size);
+        $memdata  = shmop_read($shmid, 0, $size);
+        $memory = json_decode($memdata, true);
+        shmop_close($shmid);
+}
+
+//var_dump($memory);
 $val = $memory["Totalcounter$metnum"];
 $arr_val = preg_split("/ /",$val);
 $last_val = (int)((float) str_replace(",", ".", $arr_val[0]) * 1000);
