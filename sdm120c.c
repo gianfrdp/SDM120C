@@ -59,6 +59,10 @@ extern "C" {
 
 #define MAX_RETRIES 100
 
+#define E_PARITY 'E'
+#define O_PARITY 'O'
+#define N_PARITY 'N'
+
 int debug_flag     = 0;
 const char *version = "1.1.2";
 
@@ -225,10 +229,10 @@ int main(int argc, char* argv[])
     int speed          = 0;
     int read_count     = 0;
 
-    const char E_parity = 'E';
-    const char N_parity = 'N';
-    const char O_parity = 'O';
-    char parity         = E_parity;
+    const char *EVEN_parity = "E";
+    const char *NONE_parity = "N";
+    const char *ODD_parity  = "O";
+    char parity             = E_PARITY;
 
     if (argc == 1) {
         usage(argv[0]);
@@ -301,12 +305,12 @@ int main(int argc, char* argv[])
                 break;
             case 'P':
                 c_parity = strdup(optarg);
-                if (strcmp(c_parity,"E") == 0) {
-                    parity = E_parity;
-                } else if (strcmp(c_parity,"N") == 0) {
-                    parity = N_parity;
-                } else if (strcmp(c_parity,"O") == 0) {
-                    parity = O_parity;
+                if (strcmp(c_parity,EVEN_parity) == 0) {
+                    parity = E_PARITY;
+                } else if (strcmp(c_parity,NONE_parity) == 0) {
+                    parity = N_PARITY;
+                } else if (strcmp(c_parity,ODD_parity) == 0) {
+                    parity = O_PARITY;
                 } else {
                     fprintf (stderr, "Parity must be one of E, N, O\n");
                     exit(EXIT_FAILURE);
