@@ -33,37 +33,31 @@ date_default_timezone_set($DTZ);
 
 $KWHT = 0;
 
-if ($cmd == 2 && (empty($shmid) || $KWHT == 0)) { // 123s ain't running at night retrieve the value in csv
+if ($cmd == 2) {
 
     for ($i = 0; $i < count($invtnums); $i++) {
-	$invtnum = $invtnums[$i];
-	include("$pathto123s/config/config_invt$invtnum.php");
+        $invtnum = $invtnums[$i];
+        include("$pathto123s/config/config_invt$invtnum.php");
 
-	$dir    = $pathto123s . '/data/invt' . $invtnum . '/csv';
-	$output = glob($dir . "/*.csv");
-	sort($output);
-	$xdays = count($output);
-	//echo "xdays = $xdays\n";
-	if ($xdays > 1) {
-    	    $lastlog    = $output[$xdays - 1];
-	    //echo "lastlog = $lastlog\n";
-    	    $lines      = file($lastlog);
-	    //echo "lines = $lines\n";
-    	    $contalines = count($lines);
-	    //echo "contalines = $contalines\n";
-    	    $array_last = preg_split('/,/', $lines[$contalines - 1]);
-	
-	    //echo "array_last[14] = $array_last[14]\n";
-	    //echo "${'CORRECTFACTOR'}\n";
-    	    $KWHT       += round(($array_last[14] * ${'CORRECTFACTOR'} * 1000), 0); //in Wh
-	    //echo "KWHT = $KWHT\n";
-	} else {
-    	    $KWHT += 0;
-	}
+        $dir    = $pathto123s . '/data/invt' . $invtnum . '/csv';
+        $output = glob($dir . "/*.csv");
+        sort($output);
+        $xdays = count($output);
+        if ($xdays > 1) {
+            $lastlog    = $output[$xdays - 1];
+            $lines      = file($lastlog);
+            $contalines = count($lines);
+            $array_last = preg_split('/,/', $lines[$contalines - 1]);
+
+            $KWHT       += round(($array_last[14] * ${'CORRECTFACTOR'} * 1000), 0); //in Wh
+        } else {
+            $KWHT += 0;
+        }
     }
-}
 
-if ($cmd == 1) {
+    echo "$meterid($KWHT*Wh)\n";
+} elseif ($cmd == 1) {
+
     $GP = 0;
 
     $data = file_get_contents($server);
@@ -74,11 +68,8 @@ if ($cmd == 1) {
     } else {
         $GP = round($GP, 1);
     }
+
+    echo "$meterid($GP*W)\n";
 }
 
-if ($cmd == 1) {
-    echo "$meterid($GP*W)\n";
-} elseif ($cmd == 2) {
-    echo "$meterid($KWHT*Wh)\n";
-}
 ?>
