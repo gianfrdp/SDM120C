@@ -1,0 +1,103 @@
+diff -u -r WebIOPi-0.7.1.orig/htdocs/webiopi.js WebIOPi-0.7.1/htdocs/webiopi.js
+--- WebIOPi-0.7.1.orig/htdocs/webiopi.js	2014-02-23 17:37:07.000000000 +0100
++++ WebIOPi-0.7.1/htdocs/webiopi.js	2015-03-21 00:18:38.247504315 +0100
+@@ -73,7 +73,7 @@
+ 	this.readyCallback = null;
+ 	this.context = "/";
+ 	this.GPIO = Array(54);
+-	this.PINS = Array(27);
++	this.PINS = Array(41);
+ 
+ 	this.TYPE = {
+ 			DNC: {value: 0, style: "DNC", label: "--"},
+@@ -577,7 +577,7 @@
+ RPiHeader.prototype.createTable = function (containerId) {
+ 	var table = $("<table>");
+ 	table.attr("id", "RPiHeader")
+-	for (var pin=1; pin<=26; pin++) {
++	for (var pin=1; pin<=40; pin++) {
+ 		var line = 	$('<tr>');
+ 		line.append(this.getFunctionCell(pin))
+ 		line.append(this.getDescriptionCell(pin, "right"))
+diff -u -r WebIOPi-0.7.1.orig/python/native/cpuinfo.c WebIOPi-0.7.1/python/native/cpuinfo.c
+--- WebIOPi-0.7.1.orig/python/native/cpuinfo.c	2012-10-28 22:26:10.000000000 +0100
++++ WebIOPi-0.7.1/python/native/cpuinfo.c	2015-03-20 23:03:56.552367425 +0100
+@@ -37,7 +37,10 @@
+    while(!feof(fp)) {
+       fgets(buffer, sizeof(buffer) , fp);
+       sscanf(buffer, "Hardware	: %s", hardware);
+-      if (strcmp(hardware, "BCM2708") == 0)
++      if (strcmp(hardware, "BCM2708") == 0 ||
++          strcmp(hardware, "BCM2709") == 0 ||
++          strcmp(hardware, "BCM2835") == 0 ||
++          strcmp(hardware, "BCM2836") == 0)
+          rpi_found = 1;
+       sscanf(buffer, "Revision	: %s", revision);
+    }
+diff -u -r WebIOPi-0.7.1.orig/python/native/gpio.c WebIOPi-0.7.1/python/native/gpio.c
+--- WebIOPi-0.7.1.orig/python/native/gpio.c	2013-02-03 23:04:18.000000000 +0100
++++ WebIOPi-0.7.1/python/native/gpio.c	2015-03-20 22:58:22.453452062 +0100
+@@ -20,6 +20,7 @@
+ SOFTWARE.
+ */
+ 
++#include <stdio.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -29,8 +30,8 @@
+ #include <pthread.h>
+ #include "gpio.h"
+ 
+-#define BCM2708_PERI_BASE   0x20000000
+-#define GPIO_BASE           (BCM2708_PERI_BASE + 0x200000)
++#define BCM2708_PERI_BASE_DEFAULT  0x20000000
++#define GPIO_BASE_OFFSET           0x200000
+ #define FSEL_OFFSET         0   // 0x0000
+ #define SET_OFFSET          7   // 0x001c / 4
+ #define CLR_OFFSET          10  // 0x0028 / 4
+@@ -71,6 +72,22 @@
+ {
+     int mem_fd;
+     uint8_t *gpio_mem;
++    uint32_t peri_base = BCM2708_PERI_BASE_DEFAULT;
++    uint32_t gpio_base;
++    unsigned char buf[4];
++    FILE *fp;
++
++    // get peri base from device tree
++    if ((fp = fopen("/proc/device-tree/soc/ranges", "rb")) != NULL) {
++        fseek(fp, 4, SEEK_SET);
++        if (fread(buf, 1, sizeof buf, fp) == sizeof buf) {
++            peri_base = buf[0] << 24 | buf[1] << 16 | buf[2] << 8 | buf[3] << 0;
++
++        }
++        fclose(fp);
++    }
++
++    gpio_base = peri_base + GPIO_BASE_OFFSET;
+ 
+     if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0)
+     {
+@@ -83,7 +100,7 @@
+     if ((uint32_t)gpio_mem % PAGE_SIZE)
+         gpio_mem += PAGE_SIZE - ((uint32_t)gpio_mem % PAGE_SIZE);
+ 
+-    gpio_map = (uint32_t *)mmap( (caddr_t)gpio_mem, BLOCK_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, mem_fd, GPIO_BASE);
++    gpio_map = (uint32_t *)mmap( (caddr_t)gpio_mem, BLOCK_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, mem_fd, gpio_base);
+ 
+     if ((uint32_t)gpio_map < 0)
+         return SETUP_MMAP_FAIL;
+diff -u -r WebIOPi-0.7.1.orig/python/webiopi/utils/version.py WebIOPi-0.7.1/python/webiopi/utils/version.py
+--- WebIOPi-0.7.1.orig/python/webiopi/utils/version.py	2015-02-04 21:21:44.000000000 +0100
++++ WebIOPi-0.7.1/python/webiopi/utils/version.py	2015-03-21 00:19:56.627251593 +0100
+@@ -8,8 +8,7 @@
+ 
+ _MAPPING = [[], [], []]
+ _MAPPING[1] = ["V33", "V50", 0, "V50", 1, "GND", 4, 14, "GND", 15, 17, 18, 21, "GND", 22, 23, "V33", 24, 10, "GND", 9, 25, 11, 8, "GND", 7]
+-_MAPPING[2] = ["V33", "V50", 2, "V50", 3, "GND", 4, 14, "GND", 15, 17, 18, 27, "GND", 22, 23, "V33", 24, 10, "GND", 9, 25, 11, 8, "GND", 7]
+-
++_MAPPING[2] = ["V33", "V50", 2, "V50", 3, "GND", 4, 14, "GND", 15, 17, 18, 27, "GND", 22, 23, "V33", 24, 10, "GND", 9, 25, 11, 8, "GND", 7, "DNC", "DNC" , 5, "GND", 6, 12, 13, "GND", 19, 16, 26, 20, "GND", 21]
+ 
+ try:
+     with open("/proc/cpuinfo") as f:
