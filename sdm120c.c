@@ -43,14 +43,18 @@ extern "C" {
 #define APOWER    0x0012
 #define RAPOWER   0x0018
 #define PFACTOR   0x001E
+#define PANGLE    0x0024
 #define FREQUENCY 0x0046
 #define IAENERGY  0x0048
 #define EAENERGY  0x004A
 #define TAENERGY  0x0156
+#define TRENERGY  0x0158
 
 // Write
 #define DEVICE_ID 0x0014
 #define BAUD_RATE 0x001C
+#define TIME_DISP 0xF900
+#define TOT_MODE  0xF920
 
 #define BR1200 5
 #define BR2400 0
@@ -63,16 +67,20 @@ extern "C" {
 #define O_PARITY 'O'
 #define N_PARITY 'N'
 
+#define RESTART_TRUE  1
+#define RESTART_FALSE 0
+
 int debug_flag     = 0;
-const char *version = "1.1.2";
+const char *version = "1.1.3";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [[-m]|[-q]] [-b baud_rate] [-P parity] [-z num_retries] [-j seconds] device\n", program);
-    printf("       %s [-a address] [-d] -s new_address device\n", program);
-    printf("       %s [-a address] [-d] -r baud_rate device\n\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-z num_retries] [-j seconds] device\n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] -s new_address device\n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] -r baud_rate device \n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] -R new_time device\n\n", program);
     printf("where\n");
     printf("\t-a address \tMeter number (between 1 and 247). Default: 1\n");
     printf("\t-s new_address \tSet new meter number (between 1 and 247)\n");
@@ -84,11 +92,13 @@ void usage(char* program) {
     printf("\t-e \t\tGet exported energy (Wh)\n");
     printf("\t-i \t\tGet imported energy (Wh)\n");
     printf("\t-t \t\tGet total energy (Wh)\n");
+    printf("\t-T \t\tGet Time for rotating display values (0 = no rotation) \n");
     printf("\t-d \t\tDebug\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
     printf("\t-P parity \tUse parity (E, N, O)\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
+    printf("\t-R new_time \tChange rotation time for displaying values (0 - 30s) (0 = no totation)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
@@ -98,9 +108,19 @@ void usage(char* program) {
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
 }
 
+inline int bcd2int(int val)
+{
+    return((((val & 0xf0) >> 4) * 10) + (val & 0xf));
+}
+
+int int2bcd(int val)
+{
+    return(((val / 10) << 4) + (val % 10));
+}
+
 float getMeasure(modbus_t *ctx, int address, int retries) {
 
-    int nb = 2;
+    int nb = 2; // 2 bytes
     uint16_t tab_reg[nb * sizeof(uint16_t)];
     int rc;
     int i;
@@ -148,22 +168,66 @@ float getMeasure(modbus_t *ctx, int address, int retries) {
 
 }
 
-void changeAddress(modbus_t *ctx, int new_addr)
+int getConfigBCD(modbus_t *ctx, int address, int retries) {
+
+    int nb = 1; // 1 byte
+    uint16_t tab_reg[nb * sizeof(uint16_t)];
+    int rc;
+    int i;
+    int j = 0;
+    int exit_loop = 0;
+
+    while (j < retries && exit_loop == 0) {
+      j++;
+
+      if (debug_flag == 1) {
+         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 400000+address+1, address);
+      }
+      rc = modbus_read_registers(ctx, address, nb, tab_reg);
+
+      if (rc == -1) {
+        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        modbus_flush(ctx);
+        usleep(2500);
+      } else {
+        exit_loop = 1;
+      }
+    }
+
+    if (rc == -1) {
+      modbus_close(ctx);
+      modbus_free(ctx);
+      exit(EXIT_FAILURE);
+    }
+
+    if (debug_flag == 1) {
+       for (i=0; i < rc; i++) {
+          printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
+       }
+    }
+
+    int value = bcd2int(tab_reg[0]);
+
+    return value;
+
+}
+
+void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart)
 {
-    int nb = 2;
+    int nb = 2; // 2 bytes
     uint16_t tab_reg[nb * sizeof(uint16_t)];
 
-    modbus_set_float((float) new_addr, &tab_reg[0]);
+    modbus_set_float((float) new_value, &tab_reg[0]);
     // swap LSB and MSB
     uint16_t tmp1 = tab_reg[0];
     uint16_t tmp2 = tab_reg[1];
     tab_reg[0] = tmp2;
     tab_reg[1] = tmp1;
-    
-    int n = modbus_write_registers(ctx, DEVICE_ID, nb, tab_reg);
+
+    int n = modbus_write_registers(ctx, address, nb, tab_reg);
     if (n != -1) {
-        printf("New address %d\n", new_addr);
-        printf("You have to restart the meter for apply changes\n");
+        printf("New value %d for address 0x%X\n", new_value, address);
+        if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
         printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
         modbus_close(ctx);
@@ -172,22 +236,17 @@ void changeAddress(modbus_t *ctx, int new_addr)
     }
 }
 
-void changeBaudRate(modbus_t *ctx, int new_rate)
+void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart)
 {
-    int nb = 2;
+    int nb = 1; // 1 byte
     uint16_t tab_reg[nb * sizeof(uint16_t)];
+    uint16_t u_new_value = int2bcd(new_value);
+    tab_reg[0] = u_new_value;
 
-    modbus_set_float((float) new_rate, &tab_reg[0]);
-    // BUG in libmodbus: swap LSB and MSB
-    uint16_t tmp1 = tab_reg[0];
-    uint16_t tmp2 = tab_reg[1];
-    tab_reg[0] = tmp2;
-    tab_reg[1] = tmp1;
-    
-    int n = modbus_write_registers(ctx, BAUD_RATE, nb, tab_reg);
+    int n = modbus_write_registers(ctx, address, nb, tab_reg);
     if (n != -1) {
-        printf("New baud_rate %d\n", new_rate);
-        printf("You have to restart the meter for apply changes\n");
+        printf("New value %d for address 0x%X\n", u_new_value, address);
+        if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
         printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
         modbus_close(ctx);
@@ -215,6 +274,9 @@ int main(int argc, char* argv[])
     int new_baud_rate  = 0;
     int metern_flag    = 0;
     int compact_flag   = 0;
+    int time_disp_flag = 0;
+    int rotation_time_flag = 0;
+    int rotation_time  = 0; 
     int count_param    = 0;
     int num_retries    = 1;
 #if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
@@ -241,7 +303,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:s:tvz:")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:tTvz:")) != -1) {
         switch (c)
         {
             case 'a':
@@ -344,6 +406,16 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'R':
+                rotation_time_flag = 1;
+                rotation_time = atoi(optarg);
+
+                if (!(0 <= rotation_time && rotation_time <= 30)) {
+                    fprintf (stderr, "New rotation time must be between 0 and 30.\n");
+                    exit(EXIT_FAILURE);
+                }
+                break;
+
             case 'm':
                 metern_flag = 1;
                 break;
@@ -359,6 +431,10 @@ int main(int argc, char* argv[])
                 break;
             case 'j':
                 resp_timeout = atoi(optarg);
+                break;
+            case 'T':
+                time_disp_flag = 1;
+                count_param++;
                 break;
             case '?':
                 if (optopt == 'a' || optopt == 'b' || optopt == 's') {
@@ -460,6 +536,7 @@ int main(int argc, char* argv[])
     float imp_energy = 0;
     float exp_energy = 0;
     float tot_energy = 0;
+    int   time_disp  = 0;
 
     if (new_address > 0 && new_baud_rate > 0) {
         
@@ -477,7 +554,8 @@ int main(int argc, char* argv[])
             modbus_free(ctx);
             exit(EXIT_FAILURE);
         } else {
-            changeAddress(ctx, new_address);
+            // change Address
+            changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_TRUE);
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
@@ -491,12 +569,28 @@ int main(int argc, char* argv[])
             modbus_free(ctx);
             exit(EXIT_FAILURE);
         } else {
-            changeBaudRate(ctx, new_baud_rate);
+            // change Baud Rate
+            changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_TRUE);
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
         }
         
+    } else if (rotation_time_flag > 0) {
+
+        if (count_param > 0) {
+            usage(argv[0]);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            exit(EXIT_FAILURE);
+        } else {
+            // change Time Rotation
+            changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            return 0;
+        }
+
     } else if (power_flag   == 0 &&
                volt_flag    == 0 &&
                current_flag == 0 &&
@@ -504,7 +598,8 @@ int main(int argc, char* argv[])
                pf_flag      == 0 &&
                export_flag  == 0 &&
                import_flag  == 0 &&
-               total_flag   == 0
+               total_flag   == 0 &&
+               time_disp_flag == 0
        ) {
        // if no parameter, retrieve all values
         power_flag   = 1;
@@ -635,6 +730,16 @@ int main(int argc, char* argv[])
             printf("%d ", (int) tot_energy);
         } else {
             printf("Total Active Energy: %d Wh \n", (int)(tot_energy));
+        }
+    }
+
+    if (time_disp_flag == 1) {
+        time_disp = getConfigBCD(ctx, TIME_DISP, num_retries);
+        read_count++;
+        if (compact_flag == 1) {
+            printf("%d ", (int) time_disp);
+        } else {
+            printf("Display rotation time: %d\n", time_disp);
         }
     }
 
