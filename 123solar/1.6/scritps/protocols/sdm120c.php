@@ -26,15 +26,12 @@ $dataarray  = preg_split('/[[:space:]]+/', $CMD_RETURN);
 
 $G1V = $dataarray[0];
 settype($G1V, 'float');
-$GV = $G1V;
 
 $G1A = $dataarray[1];
 settype($G1A, 'float');
-$GA = $G1A;
 
 $G1P = $dataarray[2];
 settype($G1P, 'float');
-$GP = $G1P;
 
 $FRQ = $dataarray[4];
 settype($FRQ, 'float');
@@ -61,4 +58,3 @@ if ($DEBUG != 0) {
 }
 
 ?>
-	
