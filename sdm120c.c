@@ -71,7 +71,7 @@ extern "C" {
 #define RESTART_FALSE 0
 
 int debug_flag     = 0;
-const char *version = "1.1.3";
+const char *version = "1.1.4";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
@@ -118,9 +118,63 @@ int int2bcd(int val)
     return(((val / 10) << 4) + (val % 10));
 }
 
-float getMeasure(modbus_t *ctx, int address, int retries) {
+int bcd2num(const uint16_t *src, int len)
+{
+    int n = 0;
+    int m = 1;
+    int i = 0;
+    for (i = 0; i < len; i++) {
+        n += (src[len-1-i] & 0x0F) * m;
+        n += ((src[len-1-i]>>4) & 0x0F) * m * 10;
+        m *= 100;
+    }
+    return n;
+}
 
-    int nb = 2; // 2 bytes
+int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
+
+    uint16_t tab_reg[nb * sizeof(uint16_t)];
+    int rc;
+    int i;
+    int j = 0;
+    int exit_loop = 0;
+
+    while (j < retries && exit_loop == 0) {
+      j++;
+
+      if (debug_flag == 1) {
+         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address);
+      }
+      rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
+
+      if (rc == -1) {
+        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        modbus_flush(ctx);
+        usleep(2500);
+      } else {
+        exit_loop = 1;
+      }
+    }
+
+    if (rc == -1) {
+      modbus_close(ctx);
+      modbus_free(ctx);
+      exit(EXIT_FAILURE);
+    }
+
+    if (debug_flag == 1) {
+       for (i=0; i < rc; i++) {
+          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
+       }
+    }
+
+    int value = bcd2num(&tab_reg[0], rc);
+
+    return value;
+}
+
+float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
+
     uint16_t tab_reg[nb * sizeof(uint16_t)];
     int rc;
     int i;
@@ -152,7 +206,7 @@ float getMeasure(modbus_t *ctx, int address, int retries) {
     
     if (debug_flag == 1) {
        for (i=0; i < rc; i++) {
-          printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
+          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
     }
 
@@ -168,9 +222,8 @@ float getMeasure(modbus_t *ctx, int address, int retries) {
 
 }
 
-int getConfigBCD(modbus_t *ctx, int address, int retries) {
+int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
 
-    int nb = 1; // 1 byte
     uint16_t tab_reg[nb * sizeof(uint16_t)];
     int rc;
     int i;
@@ -202,19 +255,18 @@ int getConfigBCD(modbus_t *ctx, int address, int retries) {
 
     if (debug_flag == 1) {
        for (i=0; i < rc; i++) {
-          printf("reg[%d]=%d (0x%X)\n", i, tab_reg[i], tab_reg[i]);
+          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
     }
 
-    int value = bcd2int(tab_reg[0]);
+    int value = bcd2num(&tab_reg[0], rc);
 
     return value;
 
 }
 
-void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart)
+void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, int nb)
 {
-    int nb = 2; // 2 bytes
     uint16_t tab_reg[nb * sizeof(uint16_t)];
 
     modbus_set_float((float) new_value, &tab_reg[0]);
@@ -236,9 +288,8 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart)
     }
 }
 
-void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart)
+void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int nb)
 {
-    int nb = 1; // 1 byte
     uint16_t tab_reg[nb * sizeof(uint16_t)];
     uint16_t u_new_value = int2bcd(new_value);
     tab_reg[0] = u_new_value;
@@ -555,7 +606,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Address
-            changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_TRUE);
+            changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
@@ -570,7 +621,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Baud Rate
-            changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_TRUE);
+            changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
@@ -585,7 +636,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Time Rotation
-            changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE);
+            changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE, 1);
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
@@ -614,7 +665,7 @@ int main(int argc, char* argv[])
     }
 
     if (volt_flag == 1) {
-        voltage = getMeasure(ctx, VOLTAGE, num_retries);
+        voltage = getMeasureFloat(ctx, VOLTAGE, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*V)\n", device_address, voltage);
@@ -626,7 +677,7 @@ int main(int argc, char* argv[])
     }
 
     if (current_flag == 1) {
-        current  = getMeasure(ctx, CURRENT, num_retries);
+        current  = getMeasureFloat(ctx, CURRENT, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*A)\n", device_address, current);
@@ -638,7 +689,7 @@ int main(int argc, char* argv[])
     }
 
      if (power_flag == 1) {
-        power = getMeasure(ctx, POWER, num_retries);
+        power = getMeasureFloat(ctx, POWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*W)\n", device_address, power);
@@ -650,7 +701,7 @@ int main(int argc, char* argv[])
     }
 
     if (apower_flag == 1) {
-        apower = getMeasure(ctx, APOWER, num_retries);
+        apower = getMeasureFloat(ctx, APOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*VA)\n", device_address, apower);
@@ -662,7 +713,7 @@ int main(int argc, char* argv[])
     }
 
     if (rapower_flag == 1) {
-        rapower = getMeasure(ctx, RAPOWER, num_retries);
+        rapower = getMeasureFloat(ctx, RAPOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%5.2f*VAr)\n", device_address, rapower);
@@ -674,7 +725,7 @@ int main(int argc, char* argv[])
     }
 
     if (pf_flag == 1) {
-        pf = getMeasure(ctx, PFACTOR, num_retries);
+        pf = getMeasureFloat(ctx, PFACTOR, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*-)\n", device_address, pf);
@@ -686,7 +737,7 @@ int main(int argc, char* argv[])
     }
 
     if (freq_flag == 1) {
-        freq = getMeasure(ctx, FREQUENCY, num_retries);
+        freq = getMeasureFloat(ctx, FREQUENCY, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%4.2f*Hz)\n", device_address, freq);
@@ -698,7 +749,7 @@ int main(int argc, char* argv[])
     }
 
     if (import_flag == 1) {
-        imp_energy = getMeasure(ctx, IAENERGY, num_retries) * 1000;
+        imp_energy = getMeasureFloat(ctx, IAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(imp_energy));
@@ -710,7 +761,7 @@ int main(int argc, char* argv[])
     }
 
     if (export_flag == 1) {
-        exp_energy = getMeasure(ctx, EAENERGY, num_retries) * 1000;
+        exp_energy = getMeasureFloat(ctx, EAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(exp_energy));
@@ -722,7 +773,7 @@ int main(int argc, char* argv[])
     }
 
     if (total_flag == 1) {
-        tot_energy = getMeasure(ctx, TAENERGY, num_retries) * 1000;
+        tot_energy = getMeasureFloat(ctx, TAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
             printf("%d(%d*Wh)\n", device_address, (int)(tot_energy));
@@ -734,7 +785,7 @@ int main(int argc, char* argv[])
     }
 
     if (time_disp_flag == 1) {
-        time_disp = getConfigBCD(ctx, TIME_DISP, num_retries);
+        time_disp = getConfigBCD(ctx, TIME_DISP, num_retries, 1);
         read_count++;
         if (compact_flag == 1) {
             printf("%d ", (int) time_disp);
