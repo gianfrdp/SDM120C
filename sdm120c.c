@@ -123,10 +123,16 @@ int bcd2num(const uint16_t *src, int len)
     int n = 0;
     int m = 1;
     int i = 0;
+    int shift = 0;
+    int digit = 0;
+    int j = 0;
     for (i = 0; i < len; i++) {
-        n += (src[len-1-i] & 0x0F) * m;
-        n += ((src[len-1-i]>>4) & 0x0F) * m * 10;
-        m *= 100;
+        for (j = 0; j < 4; j++) {
+            digit = ((src[len-1-i]>>shift) & 0x0F) * m;
+            n += digit;
+            m *= 10;
+            shift += 4;
+        }
     }
     return n;
 }
