@@ -7,7 +7,7 @@ if (isset($_SERVER['REMOTE_ADDR'])) {
 // You'll need to setup the path to meterN ($pathtomn). Put the meters numbers ($metnum) and the corresponding command ($cmd) :
 
 $pathtomn = '/var/www/metern';
-$output = shell_exec('pkill -f poolmeters485.sh > /dev/null 2>&1 &'); // Kill temporary the "live values fetching"
+$output = shell_exec('pkill -f pooler485.php > /dev/null 2>&1 &'); // Kill temporary the "live values fetching"
 
 if (isset($argv[1])) {
 
