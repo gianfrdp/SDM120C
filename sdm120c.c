@@ -36,6 +36,9 @@ extern "C" {
 
 #define DEFAULT_RATE 2400
 
+#define MODEL_120 1
+#define MODEL_220 2
+
 // Read
 #define VOLTAGE   0x0000
 #define CURRENT   0x0006
@@ -47,12 +50,16 @@ extern "C" {
 #define FREQUENCY 0x0046
 #define IAENERGY  0x0048
 #define EAENERGY  0x004A
+#define IRAENERGY 0x004C
+#define ERAENERGY 0x004E
 #define TAENERGY  0x0156
 #define TRENERGY  0x0158
 
 // Write
+#define NPARSTOP  0x0012
 #define DEVICE_ID 0x0014
 #define BAUD_RATE 0x001C
+#define TIME_DISP_220 0xF500
 #define TIME_DISP 0xF900
 #define TOT_MODE  0xF920
 
@@ -71,16 +78,16 @@ extern "C" {
 #define RESTART_FALSE 0
 
 int debug_flag     = 0;
-const char *version = "1.1.4";
+const char *version = "1.1.5";
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-z num_retries] [-j seconds] device\n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] -s new_address device\n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] -r baud_rate device \n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] -R new_time device\n\n", program);
+    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-1 | -2] device\n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -s new_address device\n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -r baud_rate device \n", program);
+    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device\n\n", program);
     printf("where\n");
     printf("\t-a address \tMeter number (between 1 and 247). Default: 1\n");
     printf("\t-s new_address \tSet new meter number (between 1 and 247)\n");
@@ -97,6 +104,7 @@ void usage(char* program) {
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
     printf("\t-P parity \tUse parity (E, N, O)\n");
+    printf("\t-S bit \t\tUse stop bits (1, 2). Default: 1\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-R new_time \tChange rotation time for displaying values (0 - 30s) (0 = no totation)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
@@ -104,6 +112,8 @@ void usage(char* program) {
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
     printf("\t\t\twith error. Default: 1\n");
     printf("\t-j seconds\tResponse timeout. Default: 2\n");
+    printf("\t-1 \t\tModel: SDM120C (defualt)\n");
+    printf("\t-2 \t\tModel: SDM220\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
 }
@@ -316,6 +326,7 @@ int main(int argc, char* argv[])
 {
 
     int device_address = 1;
+    int model          = MODEL_120;
     int new_address    = 0;
     int power_flag     = 0;
     int volt_flag      = 0;
@@ -328,6 +339,7 @@ int main(int argc, char* argv[])
     int import_flag    = 0;
     int total_flag     = 0;
     int baud_rate      = 0;
+    int stop_bits      = 1;
     int new_baud_rate  = 0;
     int metern_flag    = 0;
     int compact_flag   = 0;
@@ -346,6 +358,7 @@ int main(int argc, char* argv[])
     char *device       = NULL;
     char *c_parity     = NULL;
     int speed          = 0;
+    int bits           = 0;
     int read_count     = 0;
 
     const char *EVEN_parity = "E";
@@ -360,7 +373,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:tTvz:")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:S:tTvz:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -435,7 +448,15 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
-            
+            case 'S':
+                bits = atoi(optarg);
+                if (bits == 1 || bits == 2) {
+                    stop_bits = bits;
+                } else {
+                    fprintf (stderr, "Stop bits can be one of 1, 2\n");
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case 'r':
                 speed = atoi(optarg);
                 switch (speed) {
@@ -472,7 +493,12 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
-
+            case '1':
+                model = MODEL_120;
+                break;
+            case '2':
+                model = MODEL_220;
+                break;
             case 'm':
                 metern_flag = 1;
                 break;
@@ -536,7 +562,7 @@ int main(int argc, char* argv[])
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
-    ctx = modbus_new_rtu(device, baud_rate, parity, 8, 1);
+    ctx = modbus_new_rtu(device, baud_rate, parity, 8, stop_bits);
 
     if (ctx == NULL) {
         fprintf(stderr, "Unable to create the libmodbus context\n");
@@ -642,7 +668,11 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Time Rotation
-            changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE, 1);
+            if (model == MODEL_120) {
+                changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE, 1);
+            } else {
+                changeConfigBCD(ctx, TIME_DISP_220, rotation_time, RESTART_FALSE, 1);
+            }
             modbus_close(ctx);
             modbus_free(ctx);
             return 0;
