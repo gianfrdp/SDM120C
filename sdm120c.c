@@ -347,11 +347,12 @@ int main(int argc, char* argv[])
     char *c_parity     = NULL;
     int speed          = 0;
     int read_count     = 0;
+    int stop_bits      = 2;
 
     const char *EVEN_parity = "E";
     const char *NONE_parity = "N";
     const char *ODD_parity  = "O";
-    char parity             = E_PARITY;
+    char parity             = N_PARITY;
 
     if (argc == 1) {
         usage(argv[0]);
@@ -423,13 +424,20 @@ int main(int argc, char* argv[])
                 }
                 break;
             case 'P':
+                //  The Modbus specification (page 12) states:
+                //  "Devices may accept by configuration either Even, Odd, or No Parity checking.
+                //  If No Parity is implemented, an additional stop bit is transmitted to fill out
+                //  the character frame to a full 11-bit asynchronous character"
                 c_parity = strdup(optarg);
                 if (strcmp(c_parity,EVEN_parity) == 0) {
                     parity = E_PARITY;
+                    stop_bits = 1;
                 } else if (strcmp(c_parity,NONE_parity) == 0) {
                     parity = N_PARITY;
+                    stop_bits = 2;
                 } else if (strcmp(c_parity,ODD_parity) == 0) {
                     parity = O_PARITY;
+                    stop_bits = 1;
                 } else {
                     fprintf (stderr, "Parity must be one of E, N, O\n");
                     exit(EXIT_FAILURE);
@@ -536,7 +544,7 @@ int main(int argc, char* argv[])
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
-    ctx = modbus_new_rtu(device, baud_rate, parity, 8, 1);
+    ctx = modbus_new_rtu(device, baud_rate, parity, 8, stop_bits);
 
     if (ctx == NULL) {
         fprintf(stderr, "Unable to create the libmodbus context\n");
