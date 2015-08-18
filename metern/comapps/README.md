@@ -7,7 +7,7 @@ There are 2 blocks of files:
 First ones are the first version, the latter is the last version.
 
 To use pooler485.sh, create a symbolic link
-<PRE>ln -s /var/www/metern/comapps /usr/local/bin/pooler485 
+<PRE>ln -s /var/www/metern/comapps/pooler485.sh /usr/local/bin/pooler485 
 </PRE>
 then add in /etc/rc.local
 <PRE>
