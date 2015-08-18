@@ -245,6 +245,10 @@ int bcd2num(const uint16_t *src, int len)
     return n;
 }
 
+#if 0
+
+// unused
+
 int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
 
     uint16_t tab_reg[nb * sizeof(uint16_t)];
@@ -287,6 +291,8 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
 
     return value;
 }
+
+#endif
 
 float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
 
@@ -792,7 +798,7 @@ int main(int argc, char* argv[])
             fprintf (stderr, "\n");
         }
         if (rPID != PID) {
-             if (command == NULL) {	// Clear stale only if rPID process is dead (Aurora <1.8.8 needs a patch too)
+             if (command == NULL) {	// Clear stale only if rPID process is dead (Aurora <=1.8.8 needs a patch too)
                  if (debug_flag) fprintf (stderr, "\n");
                  fprintf(stderr, "%s: %s: Clearing stale serial port lock. (%lu)\n",getCurTime(),ProgramName,rPID);
                  ClrSerLock(rPID);
