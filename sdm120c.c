@@ -78,6 +78,7 @@ extern "C" {
 #define RESTART_FALSE 0
 
 int debug_flag     = 0;
+int EXIT_ERROR     = 0;
 const char *version = "1.1.5";
 
 void usage(char* program) {
@@ -175,7 +176,9 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
     if (rc == -1) {
       modbus_close(ctx);
       modbus_free(ctx);
-      exit(EXIT_FAILURE);
+      EXIT_ERROR++;
+      return -1;
+      //exit(EXIT_FAILURE);
     }
 
     if (debug_flag == 1) {
@@ -217,7 +220,9 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
     if (rc == -1) {
       modbus_close(ctx);
       modbus_free(ctx);
-      exit(EXIT_FAILURE);
+      EXIT_ERROR++;
+      return -1;
+      //exit(EXIT_FAILURE);
     }
     
     if (debug_flag == 1) {
@@ -266,7 +271,9 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
     if (rc == -1) {
       modbus_close(ctx);
       modbus_free(ctx);
-      exit(EXIT_FAILURE);
+      EXIT_ERROR++;
+      return -1;
+      //exit(EXIT_FAILURE);
     }
 
     if (debug_flag == 1) {
@@ -700,7 +707,7 @@ int main(int argc, char* argv[])
         count_param  = power_flag + volt_flag + current_flag + freq_flag + pf_flag + export_flag + import_flag + total_flag;
     }
 
-    if (volt_flag == 1) {
+    if (EXIT_ERROR == 0 && volt_flag == 1) {
         voltage = getMeasureFloat(ctx, VOLTAGE, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -712,7 +719,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (current_flag == 1) {
+    if (EXIT_ERROR == 0 && current_flag == 1) {
         current  = getMeasureFloat(ctx, CURRENT, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -724,7 +731,7 @@ int main(int argc, char* argv[])
         }
     }
 
-     if (power_flag == 1) {
+    if (EXIT_ERROR == 0 && power_flag == 1) {
         power = getMeasureFloat(ctx, POWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -736,7 +743,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (apower_flag == 1) {
+    if (EXIT_ERROR == 0 && apower_flag == 1) {
         apower = getMeasureFloat(ctx, APOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -748,7 +755,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (rapower_flag == 1) {
+    if (EXIT_ERROR == 0 && rapower_flag == 1) {
         rapower = getMeasureFloat(ctx, RAPOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -760,7 +767,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (pf_flag == 1) {
+    if (EXIT_ERROR == 0 && pf_flag == 1) {
         pf = getMeasureFloat(ctx, PFACTOR, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -772,7 +779,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (freq_flag == 1) {
+    if (EXIT_ERROR == 0 && freq_flag == 1) {
         freq = getMeasureFloat(ctx, FREQUENCY, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -784,7 +791,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (import_flag == 1) {
+    if (EXIT_ERROR == 0 && import_flag == 1) {
         imp_energy = getMeasureFloat(ctx, IAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -796,7 +803,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (export_flag == 1) {
+    if (EXIT_ERROR == 0 && export_flag == 1) {
         exp_energy = getMeasureFloat(ctx, EAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -808,7 +815,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (total_flag == 1) {
+    if (EXIT_ERROR == 0 && total_flag == 1) {
         tot_energy = getMeasureFloat(ctx, TAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -820,7 +827,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (time_disp_flag == 1) {
+    if (EXIT_ERROR == 0 && time_disp_flag == 1) {
         time_disp = getConfigBCD(ctx, TIME_DISP, num_retries, 1);
         read_count++;
         if (compact_flag == 1) {
@@ -830,10 +837,14 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (read_count == count_param) {
+    if (EXIT_ERROR == 0 && read_count == count_param) {
+        modbus_close(ctx);
+        modbus_free(ctx);
+
         printf(" OK\n");
     } else {
         printf(" NOK\n");
+        exit(EXIT_FAILURE);
     }
     
     /*
@@ -841,9 +852,6 @@ int main(int argc, char* argv[])
         printf("\n");
     }
     */
-
-    modbus_close(ctx);
-    modbus_free(ctx);
 
     return 0;
 }
