@@ -18,7 +18,7 @@ To compile
   make clean && make
 
 <PRE>
-Usage: ./sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-1 | -2] device
+Usage: ./sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device
        ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -s new_address device
        ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -r baud_rate device 
        ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device
@@ -47,6 +47,7 @@ where
     -z num_retries Try to read max num_retries times on bus before exiting
                    with error. Default: 1
     -j seconds     Response timeout. Default: 2
+    -w seconds	   tTime to wait to lock serial port. (1-30) Default: 0
     -1             Model: SDM120C (defualt)
     -2             Model: SDM220
     device         Serial device, i.e. /dev/ttyUSB0

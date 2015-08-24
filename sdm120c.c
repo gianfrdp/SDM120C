@@ -21,9 +21,12 @@ extern "C" {
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <sys/types.h>
+#include <time.h>
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -79,16 +82,25 @@ extern "C" {
 
 int debug_flag     = 0;
 int EXIT_ERROR     = 0;
-const char *version = "1.1.5";
+int trace_flag     = 0;
+
+const char *version     = "1.2.0";
+char *programName = "sdm120c";
+const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
+
+long unsigned int PID;
+static int yLockWait = 0; /* Seconds to wait to lock serial port */
+char *devLCKfile = NULL;
+char *devLCKfileNew = NULL;
 
 void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-1 | -2] device\n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -s new_address device\n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -r baud_rate device \n", program);
-    printf("       %s [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device\n\n", program);
+    printf("Usage: %s [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device\n\n", program);
     printf("where\n");
     printf("\t-a address \tMeter number (between 1 and 247). Default: 1\n");
     printf("\t-s new_address \tSet new meter number (between 1 and 247)\n");
@@ -102,21 +114,130 @@ void usage(char* program) {
     printf("\t-t \t\tGet total energy (Wh)\n");
     printf("\t-T \t\tGet Time for rotating display values (0 = no rotation) \n");
     printf("\t-d \t\tDebug\n");
+    printf("\t-x \t\tTrace (libmodbus debug on)\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
     printf("\t-P parity \tUse parity (E, N, O)\n");
     printf("\t-S bit \t\tUse stop bits (1, 2). Default: 1\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
-    printf("\t-R new_time \tChange rotation time for displaying values (0 - 30s) (0 = no totation)\n");
+    printf("\t-R new_time \tChange rotation time for displaying values (0 - 30s) (0 = no rotation)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
     printf("\t\t\twith error. Default: 1\n");
     printf("\t-j seconds\tResponse timeout. Default: 2\n");
-    printf("\t-1 \t\tModel: SDM120C (defualt)\n");
+    printf("\t-w seconds\tTime to wait to lock serial port. (1-30) Default: 0\n");
+    printf("\t-1 \t\tModel: SDM120C (default)\n");
     printf("\t-2 \t\tModel: SDM220\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
     printf("Serial device is required. When no parameter is passed, retrives all values\n");
+}
+
+/*--------------------------------------------------------------------------
+    getCurTime
+----------------------------------------------------------------------------*/
+char* getCurTime()
+{
+    time_t curTimeValue;
+    struct tm timStruct;
+    static char CurTime[18] = " ";
+
+    curTimeValue = time(NULL);
+    timStruct = *(localtime(&curTimeValue));
+    strftime(CurTime,sizeof(CurTime),"%Y%m%d-%H:%M:%S",&timStruct);
+    CurTime[sizeof(CurTime)-1] = '\0';
+
+    return CurTime;
+}
+
+void log_message(const int debug, const char* format, ...) {
+    va_list args;
+    if (debug)
+       fprintf(stderr, "%s: ", getCurTime());
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+}
+
+/*--------------------------------------------------------------------------
+        getMemPtr
+----------------------------------------------------------------------------*/
+void *getMemPtr(size_t mSize)
+{
+    void *ptr;
+    char *cptr;
+    int i;
+
+    ptr = malloc(mSize);
+    if (!ptr) {
+        log_message(debug_flag, "\nvproweather: malloc failed\n");
+        exit(2);
+    }
+    cptr = (char *)ptr;
+    for (i = 0; i < mSize; i++) cptr[i] = '\0';
+    return ptr;
+}
+
+/*--------------------------------------------------------------------------
+    ClrSerLock
+    Clear Serial Port lock.
+----------------------------------------------------------------------------*/
+int ClrSerLock(long unsigned int PID) {
+    FILE *fdserlck, *fdserlcknew;
+    long unsigned int rPID;
+    int bWrite, bRead;
+    int errno_save = 0;
+
+    errno = 0;
+    if (debug_flag) log_message(debug_flag, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\nClearing Serial Port Lock (%lu)...", devLCKfile, devLCKfileNew, PID);
+    fdserlck = fopen(devLCKfile, "r");
+    if (fdserlck == NULL) {
+        fprintf(stderr, "\n\n");
+        log_message(debug_flag, "%s: Problem opening serial device lock file to clear PID %lu: %s for read.\n\n",programName,PID,devLCKfile);
+        return(0);
+    }
+    fdserlcknew = fopen(devLCKfileNew, "w");
+    if (fdserlcknew == NULL) {
+        fprintf(stderr, "\n\n");
+        log_message(debug_flag, "%s: Problem opening new serial device lock file to clear PID %lu: %s for write.\n\n",programName,PID,devLCKfileNew);
+        fclose(fdserlck);
+        return(0);
+    }
+    bRead = fscanf(fdserlck, "%lu", &rPID);
+    while (bRead != EOF) {
+        if (rPID != PID) {
+            errno = 0;
+            bWrite = fprintf(fdserlcknew, "%lu\n", rPID);
+            errno_save = errno;
+            if (bWrite < 0 || errno_save != 0) {
+                fprintf(stderr, "\n\n");
+                log_message(debug_flag, "%s: Problem clearing serial device lock, can't write lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno_save));
+                fclose(fdserlcknew);
+                return(0);
+            }
+        }
+        bRead = fscanf(fdserlck, "%lu", &rPID);
+    }
+    fclose(fdserlck);
+    fclose(fdserlcknew);
+    errno = 0;
+    if (rename(devLCKfileNew,devLCKfile)) 
+        log_message(debug_flag, "%s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno));
+        if (debug_flag)
+            fprintf(stderr, " .done\n");
+
+    return -1;
+}
+
+inline void exit_error(modbus_t *ctx)
+{
+      modbus_close(ctx);
+      modbus_free(ctx);
+      //EXIT_ERROR++;
+      ClrSerLock(PID);
+      //return -1;
+      printf(" NOK\n");
+      exit(EXIT_FAILURE);
 }
 
 inline int bcd2int(int val)
@@ -160,12 +281,12 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
       j++;
 
       if (debug_flag == 1) {
-         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address);
+         log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address);
       }
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
 
       if (rc == -1) {
-        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        log_message(debug_flag, "%s: ERROR %s, %d\n", programName, modbus_strerror(errno), j);
         modbus_flush(ctx);
         usleep(2500);
       } else {
@@ -174,16 +295,12 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
     }
 
     if (rc == -1) {
-      modbus_close(ctx);
-      modbus_free(ctx);
-      EXIT_ERROR++;
-      return -1;
-      //exit(EXIT_FAILURE);
+      exit_error(ctx);
     }
 
     if (debug_flag == 1) {
        for (i=0; i < rc; i++) {
-          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
+          log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
     }
 
@@ -199,35 +316,31 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
     int i;
     int j = 0;
     int exit_loop = 0;
-    
+
     while (j < retries && exit_loop == 0) {
       j++;
-      
+
       if (debug_flag == 1) {
-         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address); 
+         log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address); 
       }
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
-      
+
       if (rc == -1) {
-        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        log_message(debug_flag, "%s: ERROR %s, %d\n", programName, modbus_strerror(errno), j);
         modbus_flush(ctx);
         usleep(2500);
       } else {
         exit_loop = 1;
       }
     }
-    
+
     if (rc == -1) {
-      modbus_close(ctx);
-      modbus_free(ctx);
-      EXIT_ERROR++;
-      return -1;
-      //exit(EXIT_FAILURE);
+      exit_error(ctx);
     }
-    
+
     if (debug_flag == 1) {
        for (i=0; i < rc; i++) {
-          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
+          log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
     }
 
@@ -255,12 +368,12 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
       j++;
 
       if (debug_flag == 1) {
-         printf("%d/%d. Register Address %d [%04X]\n", j, retries, 400000+address+1, address);
+         log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 400000+address+1, address);
       }
       rc = modbus_read_registers(ctx, address, nb, tab_reg);
 
       if (rc == -1) {
-        fprintf(stderr, "ERROR %s, %d\n", modbus_strerror(errno), j);
+        log_message(debug_flag, "%s: ERROR %s, %d\n", programName, modbus_strerror(errno), j);
         modbus_flush(ctx);
         usleep(2500);
       } else {
@@ -269,16 +382,12 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
     }
 
     if (rc == -1) {
-      modbus_close(ctx);
-      modbus_free(ctx);
-      EXIT_ERROR++;
-      return -1;
-      //exit(EXIT_FAILURE);
+      exit_error(ctx);
     }
 
     if (debug_flag == 1) {
        for (i=0; i < rc; i++) {
-          printf("reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
+          log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
     }
 
@@ -304,10 +413,8 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, i
         printf("New value %d for address 0x%X\n", new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
-        modbus_close(ctx);
-        modbus_free(ctx);
-        exit(EXIT_FAILURE);
+        printf("%s: errno: %s, %d, %d\n", programName, modbus_strerror(errno), errno, n);
+        exit_error(ctx);
     }
 }
 
@@ -322,10 +429,137 @@ void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int
         printf("New value %d for address 0x%X\n", u_new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        printf("errno: %s, %d, %d\n", modbus_strerror(errno), errno, n);
-        modbus_close(ctx);
-        modbus_free(ctx);
-        exit(EXIT_FAILURE);
+        log_message(debug_flag, "%s: errno: %s, %d, %d\n", programName, modbus_strerror(errno), errno, n);
+        exit_error(ctx);
+    }
+}
+
+void lockSer(const char *szttyDevice, int debug_flag)
+{
+    char *pos;
+    FILE *fdserlck = NULL;
+    long unsigned int rPID;
+    char sPID[10];
+    int bRead, bWrite, lckCNT;
+    int errno_save = 0;
+    int fLen = 0;
+    char *cmdFile = NULL;
+    char *command = NULL;
+    char *SubStrPos = NULL;
+
+    pos = strrchr(szttyDevice, '/');
+    if (pos > 0) {
+        pos++;
+        devLCKfile = getMemPtr(strlen(ttyLCKloc)+(strlen(szttyDevice)-(pos-szttyDevice))+1);
+        devLCKfile[0] = '\0';
+        strcpy(devLCKfile,ttyLCKloc);
+        strcat(devLCKfile, pos);
+        devLCKfile[strlen(devLCKfile)] = '\0';
+        sprintf(sPID,"%lu",PID);
+        devLCKfileNew = getMemPtr(strlen(devLCKfile)+strlen(sPID)+2);	/* dot & terminator */
+        devLCKfileNew[0] = '\0';
+        strcpy(devLCKfileNew,devLCKfile);
+        sprintf(devLCKfileNew,"%s.%lu",devLCKfile,PID);
+        devLCKfileNew[strlen(devLCKfileNew)] = '\0';
+    } else {
+        devLCKfile = NULL;
+    }
+
+    if (debug_flag) {
+        log_message(debug_flag, "\nszttyDevice: %s",szttyDevice);
+        log_message(debug_flag, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\n",devLCKfile,devLCKfileNew);
+    }
+
+    if (debug_flag) log_message(debug_flag, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
+    fdserlck = fopen((const char *)devLCKfile, "a");
+    if (fdserlck == NULL) {
+        if (debug_flag) fprintf(stderr, "\n");
+        log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for write.\n\n",programName,devLCKfile);
+        exit(2);
+    }
+    bWrite = fprintf(fdserlck, "%lu\n", PID);
+    errno_save = errno;
+    fclose(fdserlck);
+    fdserlck = NULL;
+    if (bWrite < 0 || errno_save != 0) {
+        if (debug_flag) log_message(debug_flag, "\n");
+        log_message(debug_flag, "%s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno_save));
+        exit(2);
+    }
+
+    rPID = 0;
+    lckCNT = -1;
+    while(rPID != PID && lckCNT++ < yLockWait) {
+        if (debug_flag && lckCNT == 0) log_message(debug_flag, "Checking for lock\n");
+        SubStrPos = NULL;
+        fdserlck = fopen(devLCKfile, "r");
+        if (fdserlck == NULL) {
+            if (debug_flag) log_message(debug_flag, "\n");
+            log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for read.\n\n",programName,devLCKfile);
+            exit(2);
+        }
+        bRead = fscanf(fdserlck, "%lu", &rPID);
+        errno_save = errno;
+        fclose(fdserlck);
+        if (debug_flag) log_message(debug_flag, "\nChecking process %lu for lock\n",rPID);
+        fdserlck = NULL;
+        if (bRead == EOF || errno_save != 0) {
+            if (debug_flag) log_message(debug_flag, "\n");
+            log_message(debug_flag, "%s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno_save));
+            exit(2);
+        }
+
+        sPID[0] = '\0';
+        sprintf(sPID,"%lu",rPID);
+        cmdFile = getMemPtr(strlen(sPID)+14+1);
+        cmdFile[0] = '\0';
+        sprintf(cmdFile,"/proc/%lu/cmdline",rPID);
+        cmdFile[strlen(cmdFile)] = '\0';
+        if (debug_flag) log_message(debug_flag, "cmdFile=\"%s\"\n", cmdFile);
+        fdserlck = fopen(cmdFile, "r");
+        if (fdserlck != NULL) {
+            fLen = 0;
+            while (fgetc(fdserlck) != EOF) fLen++;
+            if (fLen > 0) {
+                command = getMemPtr(fLen+1);
+                command[0] = '\0';
+                rewind(fdserlck);
+                bRead = fscanf(fdserlck, "%s", command);
+                command[strlen(command)] = '\0';
+                if (debug_flag) log_message(debug_flag, "command=\"%s\"\n", command);
+            }
+            fclose(fdserlck);
+            fdserlck = NULL;
+            if (command != NULL) SubStrPos = strstr(command, programName);
+        }
+        if (cmdFile != NULL) {
+            free(cmdFile);
+            cmdFile = NULL;
+        }
+        if (debug_flag) {
+            fprintf (stderr, "rPID: %lu SubStrPos: %s command: %s",rPID,SubStrPos,command);
+            if (rPID == PID) fprintf (stderr, " = me");
+            fprintf (stderr, "\n");
+        }
+        if (rPID != PID) {
+             if (command == NULL) {          // Clear stale only if rPID process is dead (Aurora <= 1.8.8 needs a patch too)
+                 if (debug_flag) fprintf (stderr, "\n");
+                 log_message(debug_flag, "%s: Clearing stale serial port lock. (%lu)\n",programName,rPID);
+                 ClrSerLock(rPID);
+             } else if (yLockWait > 0)
+                 sleep(1);
+        }
+        if (command != NULL) {
+            free(command);
+            command = NULL;
+        }
+    }
+    if (debug_flag && rPID == PID) log_message(debug_flag, "Appears we got the lock.\n");
+    if (rPID != PID) {
+        ClrSerLock(PID);
+        if (debug_flag) fprintf (stderr, "\n");
+        log_message(debug_flag, "%s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.\n\n",programName,szttyDevice,PID,rPID);
+        exit(2);
     }
 }
 
@@ -362,7 +596,7 @@ int main(int argc, char* argv[])
 #endif
     int index;
     int c;
-    char *device       = NULL;
+    char *szttyDevice  = NULL;
     char *c_parity     = NULL;
     int speed          = 0;
     int bits           = 0;
@@ -372,15 +606,16 @@ int main(int argc, char* argv[])
     const char *NONE_parity = "N";
     const char *ODD_parity  = "O";
     char parity             = E_PARITY;
+    programName       = argv[0];
 
     if (argc == 1) {
-        usage(argv[0]);
+        usage(programName);
         exit(EXIT_FAILURE);
     }
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:S:tTvz:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:S:tTvw:xz:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -432,6 +667,9 @@ int main(int argc, char* argv[])
                 break;
             case 'd':
                 debug_flag = 1;
+                break;
+            case 'x':
+                trace_flag = 1;
                 break;
             case 'b':
                 speed = atoi(optarg);
@@ -522,6 +760,13 @@ int main(int argc, char* argv[])
             case 'j':
                 resp_timeout = atoi(optarg);
                 break;
+            case 'w':
+                yLockWait = atoi(optarg);
+                if (yLockWait < 1 || yLockWait > 30) {
+                    log_message(debug_flag, "%s: -w Lock Wait seconds (%d) out of range, 1-30.\n",programName,yLockWait);
+                    return 0;
+                }
+                break;
             case 'T':
                 time_disp_flag = 1;
                 count_param++;
@@ -529,50 +774,67 @@ int main(int argc, char* argv[])
             case '?':
                 if (optopt == 'a' || optopt == 'b' || optopt == 's') {
                     fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-                    usage(argv[0]);
+                    usage(programName);
                     exit(EXIT_FAILURE);
                 }
                 else if (isprint (optopt)) {
                     fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-                    usage(argv[0]);
+                    usage(programName);
                     exit(EXIT_FAILURE);
                 }
                 else {
                     fprintf (stderr,"Unknown option character `\\x%x'.\n",optopt);
-                    usage(argv[0]);
+                    usage(programName);
                     exit(EXIT_FAILURE);
                 }
             default:
                 fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-                usage(argv[0]);
+                usage(programName);
                 exit(EXIT_FAILURE);
         }
     }
 
+#if 0
     if ((optind+1) > argc) {
         /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
         if (debug_flag == 1) {
-           printf("optind = %d, argc = %d\n", optind, argc);
+           log_message(debug_flag, "optind = %d, argc = %d\n", optind, argc);
         }
-        usage(argv[0]);
+        usage(programName);
         exit(EXIT_FAILURE);
     } else {
-        device = argv[optind];
+    }
+#endif
+
+    if (optind < argc) {               /* get serial device name */
+        szttyDevice = argv[optind];
+     } else {
+        /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
+        if (debug_flag == 1) {
+           log_message(debug_flag, "optind = %d, argc = %d\n", optind, argc);
+        }
+        usage(programName);
+        log_message(debug_flag, "%s: No serial device specified\n",programName);
+        exit(EXIT_FAILURE);
     }
 
     if (compact_flag == 1 && metern_flag == 1) {
-        fprintf(stderr, "Parameter -m and -q are mutually exclusive\n\n");
-        usage(argv[0]);
+        log_message(debug_flag, "Parameter -m and -q are mutually exclusive\n\n");
+        usage(programName);
         exit(EXIT_FAILURE);
     }
+
+    PID = getpid();
+    lockSer(szttyDevice, debug_flag);
 
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
-    ctx = modbus_new_rtu(device, baud_rate, parity, 8, stop_bits);
+    ctx = modbus_new_rtu(szttyDevice, baud_rate, parity, 8, stop_bits);
 
     if (ctx == NULL) {
-        fprintf(stderr, "Unable to create the libmodbus context\n");
+        log_message(debug_flag, "Unable to create the libmodbus context\n");
+        ClrSerLock(PID);
         exit(EXIT_FAILURE);
     }
 
@@ -582,7 +844,7 @@ int main(int argc, char* argv[])
     uint32_t old_response_to_usec;
 
     modbus_get_response_timeout(ctx, &old_response_to_sec, &old_response_to_usec);
-    
+
     // Considering to get those values from command line
     modbus_set_byte_timeout(ctx, -1, 0);
     modbus_set_response_timeout(ctx, resp_timeout, 0);
@@ -591,7 +853,7 @@ int main(int argc, char* argv[])
 
     struct timeval old_response_timeout;
     struct timeval response_timeout;
-    
+
     modbus_get_response_timeout(ctx, &old_response_timeout);
     response_timeout.tv_sec = -1;
     response_timeout.tv_usec = 0;
@@ -603,16 +865,18 @@ int main(int argc, char* argv[])
 #endif
 
     modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
-                      
-    if (debug_flag == 1) {
+
+    if (trace_flag == 1) {
         modbus_set_debug(ctx, 1);
     }
+
     int slave = 0;
     slave = modbus_set_slave(ctx, device_address);
-    
+
     if (modbus_connect(ctx) == -1) {
-        fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+        log_message(debug_flag, "Connection failed: %s\n", modbus_strerror(errno));
         modbus_free(ctx);
+        ClrSerLock(PID);
         exit(EXIT_FAILURE);
     }
 
@@ -629,49 +893,51 @@ int main(int argc, char* argv[])
     int   time_disp  = 0;
 
     if (new_address > 0 && new_baud_rate > 0) {
-        
-        fprintf(stderr, "Parameter -s and -r are mutually exclusive\n\n");
-        usage(argv[0]);
-        modbus_close(ctx);
-        modbus_free(ctx);
-        exit(EXIT_FAILURE);
-        
+
+        log_message(debug_flag, "Parameter -s and -r are mutually exclusive\n\n");
+        usage(programName);
+        exit_error(ctx);
     } else if (new_address > 0) {
-    
+
         if (count_param > 0) {
-            usage(argv[0]);
+            usage(programName);
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             exit(EXIT_FAILURE);
         } else {
             // change Address
             changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             return 0;
         }
-        
+
     } else if (new_baud_rate > 0) {
-    
+
         if (count_param > 0) {
-            usage(argv[0]);
+            usage(programName);
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             exit(EXIT_FAILURE);
         } else {
             // change Baud Rate
             changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             return 0;
         }
-        
+
     } else if (rotation_time_flag > 0) {
 
         if (count_param > 0) {
-            usage(argv[0]);
+            usage(programName);
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             exit(EXIT_FAILURE);
         } else {
             // change Time Rotation
@@ -682,6 +948,7 @@ int main(int argc, char* argv[])
             }
             modbus_close(ctx);
             modbus_free(ctx);
+            ClrSerLock(PID);
             return 0;
         }
 
@@ -707,7 +974,7 @@ int main(int argc, char* argv[])
         count_param  = power_flag + volt_flag + current_flag + freq_flag + pf_flag + export_flag + import_flag + total_flag;
     }
 
-    if (EXIT_ERROR == 0 && volt_flag == 1) {
+    if (volt_flag == 1) {
         voltage = getMeasureFloat(ctx, VOLTAGE, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -719,7 +986,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && current_flag == 1) {
+    if (current_flag == 1) {
         current  = getMeasureFloat(ctx, CURRENT, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -731,7 +998,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && power_flag == 1) {
+    if (power_flag == 1) {
         power = getMeasureFloat(ctx, POWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -743,7 +1010,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && apower_flag == 1) {
+    if (apower_flag == 1) {
         apower = getMeasureFloat(ctx, APOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -755,7 +1022,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && rapower_flag == 1) {
+    if (rapower_flag == 1) {
         rapower = getMeasureFloat(ctx, RAPOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -767,7 +1034,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && pf_flag == 1) {
+    if (pf_flag == 1) {
         pf = getMeasureFloat(ctx, PFACTOR, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -779,7 +1046,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && freq_flag == 1) {
+    if (freq_flag == 1) {
         freq = getMeasureFloat(ctx, FREQUENCY, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
@@ -791,7 +1058,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && import_flag == 1) {
+    if (import_flag == 1) {
         imp_energy = getMeasureFloat(ctx, IAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -803,7 +1070,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && export_flag == 1) {
+    if (export_flag == 1) {
         exp_energy = getMeasureFloat(ctx, EAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -815,7 +1082,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && total_flag == 1) {
+    if (total_flag == 1) {
         tot_energy = getMeasureFloat(ctx, TAENERGY, num_retries, 2) * 1000;
         read_count++;
         if (metern_flag == 1) {
@@ -827,7 +1094,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && time_disp_flag == 1) {
+    if (time_disp_flag == 1) {
         time_disp = getConfigBCD(ctx, TIME_DISP, num_retries, 1);
         read_count++;
         if (compact_flag == 1) {
@@ -837,16 +1104,15 @@ int main(int argc, char* argv[])
         }
     }
 
-    if (EXIT_ERROR == 0 && read_count == count_param) {
+    if (read_count == count_param) {
         modbus_close(ctx);
         modbus_free(ctx);
-
+        ClrSerLock(PID);
         printf(" OK\n");
     } else {
-        printf(" NOK\n");
-        exit(EXIT_FAILURE);
+        exit_error(ctx);
     }
-    
+
     /*
     if (compact_flag == 1) {
         printf("\n");
