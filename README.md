@@ -19,9 +19,9 @@ To compile
 
 <PRE>
 Usage: ./sdm120c [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device
-       ./sdm120c [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device
-       ./sdm120c [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device
-       ./sdm120c [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device
+       ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -s new_address device
+       ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -r baud_rate device 
+       ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device
 
 where
     -a address 	   Meter number (between 1 and 247). Default: 1

@@ -18,9 +18,9 @@ pooler485 1 9600 /dev/ttyUSB0&
 where 1 is RS485 address (and meterN ID), 9600 port speed, /dev/ttyUSB0 is USB-RS485 device
 
 In meter configuration use
-<PRE>more /run/shm/metern1.txt | egrep "^1\(" | grep "*Wh)"</PRE>
+<PRE>cat /run/shm/metern1.txt | egrep "^1\(" | grep "*Wh)"</PRE>
 for energy and
-<PRE>more /run/shm/metern1.txt  | egrep "^1\(" | grep "*W)"</PRE>
+<PRE>cat /run/shm/metern1.txt  | egrep "^1\(" | grep "*W)"</PRE>
 for live power
 
 You can use more meters on the same bus, setting meters with different addresses.
@@ -28,6 +28,6 @@ MeterN configuration is the same, dimply change 1 with 2, 3, etc.
 
 NOTE: meterN ID must be equal to RS485 address
 
-Poolen485.php is a new pooler only for total consumation that prevent passover when, for some reason, meter returns a value lesser than previous one.
+poolen485.php is a new pooler only for total consumation that prevent passover when, for some reason, meter returns a value lesser than previous one.
 Use
 <pre>poolen485 1</pre>
