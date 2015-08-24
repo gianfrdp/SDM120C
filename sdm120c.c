@@ -614,17 +614,6 @@ int main(int argc, char* argv[])
     char parity             = E_PARITY;
     programName       = argv[0];
 
-    char *pos;
-    FILE *fdserlck = NULL;
-    long unsigned int rPID;
-    char sPID[10];
-    int bRead, bWrite, lckCNT;
-    int errno_save = 0;
-    int fLen = 0;
-    char *cmdFile = NULL;
-    char *command = NULL;
-    char *SubStrPos = NULL;
-
     if (argc == 1) {
         usage(programName);
         exit(EXIT_FAILURE);
@@ -811,33 +800,6 @@ int main(int argc, char* argv[])
         }
     }
 
-#if 0
-    if ((optind+1) > argc) {
-        /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
-        if (debug_flag == 1) {
-           log_message(debug_flag, "optind = %d, argc = %d\n", optind, argc);
-        }
-        usage(programName);
-        exit(EXIT_FAILURE);
-    }
-    pos = strrchr(szttyDevice, '/');
-    if (pos > 0) {
-        pos++;
-        devLCKfile = getMemPtr(strlen(ttyLCKloc)+(strlen(szttyDevice)-(pos-szttyDevice))+1);
-        devLCKfile[0] = '\0';
-        strcpy(devLCKfile,ttyLCKloc);
-        strcat(devLCKfile, pos);
-        devLCKfile[strlen(devLCKfile)] = '\0';
-        sprintf(sPID,"%lu",PID);
-        devLCKfileNew = getMemPtr(strlen(devLCKfile)+strlen(sPID)+2);	/* dot & terminator */
-        devLCKfileNew[0] = '\0';
-        strcpy(devLCKfileNew,devLCKfile);
-        sprintf(devLCKfileNew,"%s.%lu",devLCKfile,PID);
-        devLCKfileNew[strlen(devLCKfileNew)] = '\0';
-    } else {
-    }
-#endif
-
     if (optind < argc) {               /* get serial device name */
         szttyDevice = argv[optind];
      } else {
@@ -875,7 +837,6 @@ int main(int argc, char* argv[])
 
     uint32_t old_response_to_sec;
     uint32_t old_response_to_usec;
-
     modbus_get_response_timeout(ctx, &old_response_to_sec, &old_response_to_usec);
 
     // Considering to get those values from command line
