@@ -24,8 +24,8 @@ Usage: ./sdm120c [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] 
        ./sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device
 
 where
-    -a address 	   Meter number (between 1 and 247). Default: 1
-    -s new_address Set new meter number (between 1 and 247)
+    -a address 	Meter number (between 1 and 247). Default: 1
+    -s new_address 	Set new meter number (between 1 and 247)
     -p             Get power (W)
     -v             Get voltage (V)
     -c             Get current (A)
