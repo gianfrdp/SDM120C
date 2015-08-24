@@ -812,7 +812,6 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-
     if (compact_flag == 1 && metern_flag == 1) {
         log_message(debug_flag, "Parameter -m and -q are mutually exclusive\n\n");
         usage(programName);
@@ -837,6 +836,7 @@ int main(int argc, char* argv[])
 
     uint32_t old_response_to_sec;
     uint32_t old_response_to_usec;
+
     modbus_get_response_timeout(ctx, &old_response_to_sec, &old_response_to_usec);
 
     // Considering to get those values from command line
