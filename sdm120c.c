@@ -80,11 +80,11 @@ extern "C" {
 #define RESTART_TRUE  1
 #define RESTART_FALSE 0
 
-int debug_flag     = 0;
+int debug_flag     = 1;
 int EXIT_ERROR     = 0;
 int trace_flag     = 0;
 
-const char *version     = "1.2.0";
+const char *version     = "1.2.1";
 char *programName = "sdm120c";
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -97,10 +97,10 @@ void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device\n\n", program);
+    printf("Usage: %s [-a address] [-d level] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
+    printf("       %s [-a address] [-d level] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
+    printf("       %s [-a address] [-d level] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
+    printf("       %s [-a address] [-d level] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device\n\n", program);
     printf("where\n");
     printf("\t-a address \tMeter number (between 1 and 247). Default: 1\n");
     printf("\t-s new_address \tSet new meter number (between 1 and 247)\n");
@@ -113,7 +113,7 @@ void usage(char* program) {
     printf("\t-i \t\tGet imported energy (Wh)\n");
     printf("\t-t \t\tGet total energy (Wh)\n");
     printf("\t-T \t\tGet Time for rotating display values (0 = no rotation) \n");
-    printf("\t-d \t\tDebug\n");
+    printf("\t-d level\tSet debug level. Default: 1\n");
     printf("\t-x \t\tTrace (libmodbus debug on)\n");
     printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
     printf("\t\t\tDefault: 2400\n");
@@ -151,12 +151,14 @@ char* getCurTime()
 }
 
 void log_message(const int debug, const char* format, ...) {
-    va_list args;
-    if (debug)
-       fprintf(stderr, "%s: ", getCurTime());
-    va_start(args, format);
-    vfprintf(stderr, format, args);
-    va_end(args);
+    if (debug) {
+      va_list args;    
+      if (debug>1)
+         fprintf(stderr, "%s: ", getCurTime());
+      va_start(args, format);
+      vfprintf(stderr, format, args);
+      va_end(args);
+    }
 }
 
 /*--------------------------------------------------------------------------
@@ -189,7 +191,7 @@ int ClrSerLock(long unsigned int PID) {
     int errno_save = 0;
 
     errno = 0;
-    if (debug_flag) log_message(debug_flag, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\nClearing Serial Port Lock (%lu)...", devLCKfile, devLCKfileNew, PID);
+    if (debug_flag>1) log_message(debug_flag, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\nClearing Serial Port Lock (%lu)...", devLCKfile, devLCKfileNew, PID);
     fdserlck = fopen(devLCKfile, "r");
     if (fdserlck == NULL) {
         fprintf(stderr, "\n\n");
@@ -223,7 +225,7 @@ int ClrSerLock(long unsigned int PID) {
     errno = 0;
     if (rename(devLCKfileNew,devLCKfile)) 
         log_message(debug_flag, "%s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno));
-        if (debug_flag)
+        if (debug_flag>1)
             fprintf(stderr, " .done\n");
 
     return -1;
@@ -280,7 +282,7 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      if (debug_flag == 1) {
+      if (debug_flag > 1) {
          log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address);
       }
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
@@ -298,7 +300,7 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
       exit_error(ctx);
     }
 
-    if (debug_flag == 1) {
+    if (debug_flag > 1) {
        for (i=0; i < rc; i++) {
           log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
@@ -320,7 +322,7 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      if (debug_flag == 1) {
+      if (debug_flag > 1) {
          log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 30000+address+1, address); 
       }
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
@@ -338,7 +340,7 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
       exit_error(ctx);
     }
 
-    if (debug_flag == 1) {
+    if (debug_flag > 1) {
        for (i=0; i < rc; i++) {
           log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
@@ -367,7 +369,7 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      if (debug_flag == 1) {
+      if (debug_flag > 1) {
          log_message(debug_flag, "%d/%d. Register Address %d [%04X]\n", j, retries, 400000+address+1, address);
       }
       rc = modbus_read_registers(ctx, address, nb, tab_reg);
@@ -385,7 +387,7 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
       exit_error(ctx);
     }
 
-    if (debug_flag == 1) {
+    if (debug_flag > 1) {
        for (i=0; i < rc; i++) {
           log_message(debug_flag, "reg[%d/%d]=%d (0x%X)\n", i, (rc-1), tab_reg[i], tab_reg[i]);
        }
@@ -465,15 +467,15 @@ void lockSer(const char *szttyDevice, int debug_flag)
         devLCKfile = NULL;
     }
 
-    if (debug_flag) {
+    if (debug_flag>1) {
         log_message(debug_flag, "\nszttyDevice: %s",szttyDevice);
         log_message(debug_flag, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\n",devLCKfile,devLCKfileNew);
     }
 
-    if (debug_flag) log_message(debug_flag, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
+    if (debug_flag>1) log_message(debug_flag, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
     fdserlck = fopen((const char *)devLCKfile, "a");
     if (fdserlck == NULL) {
-        if (debug_flag) fprintf(stderr, "\n");
+        if (debug_flag>1) fprintf(stderr, "\n");
         log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for write.\n\n",programName,devLCKfile);
         exit(2);
     }
@@ -482,7 +484,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
     fclose(fdserlck);
     fdserlck = NULL;
     if (bWrite < 0 || errno_save != 0) {
-        if (debug_flag) log_message(debug_flag, "\n");
+        if (debug_flag>1) log_message(debug_flag, "\n");
         log_message(debug_flag, "%s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno_save));
         exit(2);
     }
@@ -490,21 +492,21 @@ void lockSer(const char *szttyDevice, int debug_flag)
     rPID = 0;
     lckCNT = -1;
     while(rPID != PID && lckCNT++ < yLockWait) {
-        if (debug_flag && lckCNT == 0) log_message(debug_flag, "Checking for lock\n");
+        if (debug_flag>1 && lckCNT == 0) log_message(debug_flag, "Checking for lock\n");
         SubStrPos = NULL;
         fdserlck = fopen(devLCKfile, "r");
         if (fdserlck == NULL) {
-            if (debug_flag) log_message(debug_flag, "\n");
+            if (debug_flag>1) log_message(debug_flag, "\n");
             log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for read.\n\n",programName,devLCKfile);
             exit(2);
         }
         bRead = fscanf(fdserlck, "%lu", &rPID);
         errno_save = errno;
         fclose(fdserlck);
-        if (debug_flag) log_message(debug_flag, "\nChecking process %lu for lock\n",rPID);
+        if (debug_flag>1) log_message(debug_flag, "\nChecking process %lu for lock\n",rPID);
         fdserlck = NULL;
         if (bRead == EOF || errno_save != 0) {
-            if (debug_flag) log_message(debug_flag, "\n");
+            if (debug_flag>1) log_message(debug_flag, "\n");
             log_message(debug_flag, "%s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",programName,devLCKfile,strerror (errno_save));
             exit(2);
         }
@@ -515,7 +517,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
         cmdFile[0] = '\0';
         sprintf(cmdFile,"/proc/%lu/cmdline",rPID);
         cmdFile[strlen(cmdFile)] = '\0';
-        if (debug_flag) log_message(debug_flag, "cmdFile=\"%s\"\n", cmdFile);
+        if (debug_flag>1) log_message(debug_flag, "cmdFile=\"%s\"\n", cmdFile);
         fdserlck = fopen(cmdFile, "r");
         if (fdserlck != NULL) {
             fLen = 0;
@@ -526,7 +528,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
                 rewind(fdserlck);
                 bRead = fscanf(fdserlck, "%s", command);
                 command[strlen(command)] = '\0';
-                if (debug_flag) log_message(debug_flag, "command=\"%s\"\n", command);
+                if (debug_flag>1) log_message(debug_flag, "command=\"%s\"\n", command);
             }
             fclose(fdserlck);
             fdserlck = NULL;
@@ -536,14 +538,14 @@ void lockSer(const char *szttyDevice, int debug_flag)
             free(cmdFile);
             cmdFile = NULL;
         }
-        if (debug_flag) {
+        if (debug_flag>1) {
             fprintf (stderr, "rPID: %lu SubStrPos: %s command: %s",rPID,SubStrPos,command);
             if (rPID == PID) fprintf (stderr, " = me");
             fprintf (stderr, "\n");
         }
         if (rPID != PID) {
              if (command == NULL) {          // Clear stale only if rPID process is dead (Aurora <= 1.8.8 needs a patch too)
-                 if (debug_flag) fprintf (stderr, "\n");
+                 if (debug_flag>1) fprintf (stderr, "\n");
                  log_message(debug_flag, "%s: Clearing stale serial port lock. (%lu)\n",programName,rPID);
                  ClrSerLock(rPID);
              } else if (yLockWait > 0)
@@ -554,10 +556,10 @@ void lockSer(const char *szttyDevice, int debug_flag)
             command = NULL;
         }
     }
-    if (debug_flag && rPID == PID) log_message(debug_flag, "Appears we got the lock.\n");
+    if (debug_flag>1 && rPID == PID) log_message(debug_flag, "Appears we got the lock.\n");
     if (rPID != PID) {
         ClrSerLock(PID);
-        if (debug_flag) fprintf (stderr, "\n");
+        if (debug_flag>1) fprintf (stderr, "\n");
         log_message(debug_flag, "%s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.\n\n",programName,szttyDevice,PID,rPID);
         exit(2);
     }
@@ -615,7 +617,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:S:tTvw:xz:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:b:cd:efgij:lmnpP:qr:R:s:S:tTvw:xz:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -666,7 +668,7 @@ int main(int argc, char* argv[])
                 count_param++;
                 break;
             case 'd':
-                debug_flag = 1;
+                debug_flag = atoi(optarg);
                 break;
             case 'x':
                 trace_flag = 1;
@@ -797,7 +799,7 @@ int main(int argc, char* argv[])
 #if 0
     if ((optind+1) > argc) {
         /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
-        if (debug_flag == 1) {
+        if (debug_flag > 1) {
            log_message(debug_flag, "optind = %d, argc = %d\n", optind, argc);
         }
         usage(programName);
@@ -810,7 +812,7 @@ int main(int argc, char* argv[])
         szttyDevice = argv[optind];
      } else {
         /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
-        if (debug_flag == 1) {
+        if (debug_flag > 1) {
            log_message(debug_flag, "optind = %d, argc = %d\n", optind, argc);
         }
         usage(programName);
