@@ -18,7 +18,7 @@ To compile
   make clean && make
 
 <PRE>
-Usage: sdm120c [-a address] [-d] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device
+Usage: sdm120c [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device
        sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -s new_address device
        sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -r baud_rate device 
        sdm120c [-a address] [-d] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] -R new_time device
@@ -36,6 +36,7 @@ where
     -t             Get total energy (Wh)
     -T             Get Time for rotating display values (0 = no rotation) 
     -d             Debug
+    -x             Trace (libmodbus debug on)
     -b baud_rate   Use baud_rate serial port speed (1200, 2400, 4800, 9600)
                    Default: 2400
     -P parity      Use parity (E, N, O)
