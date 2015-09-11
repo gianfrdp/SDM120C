@@ -6,6 +6,12 @@ It depends on libmodbus (http://libmodbus.org)
 To compile
   make clean && make
 
+To install
+  make install
+
+To uninstall
+  make uninstall
+
 <PRE>
 # SDM120C
 SDM120C ModBus RTU client to read EASTRON SDM120C smart mini power meter registers
@@ -14,8 +20,8 @@ It works with SDM120C and SDM220 models
 
 It depends on libmodbus (http://libmodbus.org)
 
-To compile
-  make clean && make
+To compile and install
+  make clean && make install
 
 <PRE>
 Usage: sdm120c [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device
