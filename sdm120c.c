@@ -81,11 +81,12 @@ extern "C" {
 #define RESTART_FALSE 0
 
 int debug_flag     = 0;
-int EXIT_ERROR     = 0;
 int trace_flag     = 0;
 
-const char *version     = "1.2.0";
-char *programName = "sdm120c";
+int metern_flag    = 0;
+
+const char *version     = "1.2.2";
+char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
 long unsigned int PID;
@@ -107,11 +108,17 @@ void usage(char* program) {
     printf("\t-p \t\tGet power (W)\n");
     printf("\t-v \t\tGet voltage (V)\n");
     printf("\t-c \t\tGet current (A)\n");
+    printf("\t-l \t\tGet apparent power (VA)\n");
+    printf("\t-n \t\tGet reactive power (VAR)\n");
     printf("\t-f \t\tGet frequency (Hz)\n");
+    printf("\t-o \t\tGet phase angle (Degree)\n");
     printf("\t-g \t\tGet power factor\n");
-    printf("\t-e \t\tGet exported energy (Wh)\n");
     printf("\t-i \t\tGet imported energy (Wh)\n");
+    printf("\t-e \t\tGet exported energy (Wh)\n");
     printf("\t-t \t\tGet total energy (Wh)\n");
+    printf("\t-A \t\tGet imported reactive energy (VARh)\n");
+    printf("\t-B \t\tGet exported reactive energy (VARh)\n");
+    printf("\t-C \t\tGet total reactive energy (VARh)\n");
     printf("\t-T \t\tGet Time for rotating display values (0 = no rotation) \n");
     printf("\t-d \t\tDebug\n");
     printf("\t-x \t\tTrace (libmodbus debug on)\n");
@@ -235,10 +242,8 @@ inline void exit_error(modbus_t *ctx)
 {
       modbus_close(ctx);
       modbus_free(ctx);
-      //EXIT_ERROR++;
       ClrSerLock(PID);
-      //return -1;
-      printf(" NOK\n");
+      if (!metern_flag) printf("NOK\n");
       exit(EXIT_FAILURE);
 }
 
@@ -418,7 +423,7 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, i
         printf("New value %d for address 0x%X\n", new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        printf("%s: errno: %s, %d, %d\n", programName, modbus_strerror(errno), errno, n);
+        log_message(1, "%s: errno: %s, %d, %d", programName, modbus_strerror(errno), errno, n);
         exit_error(ctx);
     }
 }
@@ -434,7 +439,7 @@ void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int
         printf("New value %d for address 0x%X\n", u_new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(debug_flag, "%s: errno: %s, %d, %d\n", programName, modbus_strerror(errno), errno, n);
+        log_message(1, "%s: errno: %s, %d, %d", programName, modbus_strerror(errno), errno, n);
         exit_error(ctx);
     }
 }
@@ -473,11 +478,13 @@ void lockSer(const char *szttyDevice, int debug_flag)
     log_message(debug_flag, "szttyDevice: %s",szttyDevice);
     log_message(debug_flag, "devLCKfile: <%s>",devLCKfile);
     log_message(debug_flag, "devLCKfileNew: <%s>",devLCKfileNew);
+    log_message(debug_flag, "PID: %lu", PID);    
 
     log_message(debug_flag, "Attempting to get lock on Serial Port %s...",szttyDevice);
     fdserlck = fopen((const char *)devLCKfile, "a");
     if (fdserlck == NULL) {
-        log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for write.",programName,devLCKfile);
+        log_message(1, "%s: Problem locking serial device, can't open lock file: %s for write.",programName,devLCKfile);
+        log_message(1, "Check execution permission of %s, it shoud be '-rws--x--x'.");        
         exit(2);
     }
     bWrite = fprintf(fdserlck, "%lu\n", PID);
@@ -553,20 +560,21 @@ void lockSer(const char *szttyDevice, int debug_flag)
     if (debug_flag && rPID == PID) log_message(debug_flag, "Appears we got the lock.");
     if (rPID != PID) {
         ClrSerLock(PID);
-        log_message(debug_flag, "%s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.",programName,szttyDevice,PID,rPID);
+        log_message(1, "%s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.",programName,szttyDevice,PID,rPID);
+        log_message(1, "Try a greater -w value (eg -w 5).");
         exit(2);
     }
 }
 
 int main(int argc, char* argv[])
 {
-
     int device_address = 1;
     int model          = MODEL_120;
     int new_address    = 0;
     int power_flag     = 0;
     int volt_flag      = 0;
     int current_flag   = 0;
+    int pangle_flag    = 0;
     int freq_flag      = 0;
     int pf_flag        = 0;
     int apower_flag    = 0;
@@ -574,10 +582,12 @@ int main(int argc, char* argv[])
     int export_flag    = 0;
     int import_flag    = 0;
     int total_flag     = 0;
+    int rexport_flag   = 0;
+    int rimport_flag   = 0;
+    int rtotal_flag    = 0;
     int baud_rate      = 0;
     int stop_bits      = 1;
     int new_baud_rate  = 0;
-    int metern_flag    = 0;
     int compact_flag   = 0;
     int time_disp_flag = 0;
     int rotation_time_flag = 0;
@@ -610,7 +620,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:b:cdefgij:lmnpP:qr:R:s:S:tTvw:xz:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:Ab:BcCdefgij:lmnopP:qr:R:s:S:tTvw:xz:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -644,6 +654,18 @@ int main(int argc, char* argv[])
                 total_flag = 1;
                 count_param++;
                 break;
+            case 'A':
+                rimport_flag = 1;
+                count_param++;
+                break;
+            case 'B':
+                rexport_flag = 1;
+                count_param++;
+                break;
+            case 'C':
+                rtotal_flag = 1;
+                count_param++;
+                break;
             case 'f':
                 freq_flag = 1;
                 count_param++;
@@ -658,6 +680,10 @@ int main(int argc, char* argv[])
                 break;
             case 'n':
                 rapower_flag = 1;
+                count_param++;
+                break;
+            case 'o':
+                pangle_flag = 1;
                 count_param++;
                 break;
             case 'd':
@@ -767,17 +793,11 @@ int main(int argc, char* argv[])
                 count_param++;
                 break;
             case '?':
-                if (optopt == 'a' || optopt == 'b' || optopt == 's') {
-                    fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-                    usage(programName);
-                    exit(EXIT_FAILURE);
-                }
-                else if (isprint (optopt)) {
+                if (isprint (optopt)) {
                     fprintf (stderr, "Unknown option `-%c'.\n", optopt);
                     usage(programName);
                     exit(EXIT_FAILURE);
-                }
-                else {
+                } else {
                     fprintf (stderr,"Unknown option character `\\x%x'.\n",optopt);
                     usage(programName);
                     exit(EXIT_FAILURE);
@@ -792,7 +812,6 @@ int main(int argc, char* argv[])
     if (optind < argc) {               /* get serial device name */
         szttyDevice = argv[optind];
      } else {
-        /* need at least one argument (change +1 to +2 for two, etc. as needeed) */
         log_message(debug_flag, "optind = %d, argc = %d", optind, argc);
         usage(programName);
         fprintf(stderr, "%s: No serial device specified\n",programName);
@@ -855,23 +874,27 @@ int main(int argc, char* argv[])
     slave = modbus_set_slave(ctx, device_address);
 
     if (modbus_connect(ctx) == -1) {
-        log_message(debug_flag, "Connection failed: %s\n", modbus_strerror(errno));
+        log_message(1, "Connection failed: %s\n", modbus_strerror(errno));
         modbus_free(ctx);
         ClrSerLock(PID);
         exit(EXIT_FAILURE);
     }
 
-    float voltage    = 0;
-    float current    = 0;
-    float power      = 0;
-    float apower     = 0;
-    float rapower    = 0;
-    float pf         = 0;
-    float freq       = 0;
-    float imp_energy = 0;
-    float exp_energy = 0;
-    float tot_energy = 0;
-    int   time_disp  = 0;
+    float voltage     = 0;
+    float current     = 0;
+    float power       = 0;
+    float apower      = 0;
+    float rapower     = 0;
+    float pf          = 0;
+    float pangle      = 0;
+    float freq        = 0;
+    float imp_energy  = 0;
+    float exp_energy  = 0;
+    float tot_energy  = 0;
+    float impr_energy = 0;
+    float expr_energy = 0;
+    float totr_energy = 0;
+    int   time_disp   = 0;
 
     if (new_address > 0 && new_baud_rate > 0) {
 
@@ -934,25 +957,40 @@ int main(int argc, char* argv[])
         }
 
     } else if (power_flag   == 0 &&
+               apower_flag  == 0 &&
+               rapower_flag == 0 &&
                volt_flag    == 0 &&
                current_flag == 0 &&
-               freq_flag    == 0 &&
                pf_flag      == 0 &&
+               pangle_flag  == 0 &&
+               freq_flag    == 0 &&
                export_flag  == 0 &&
                import_flag  == 0 &&
                total_flag   == 0 &&
+               rexport_flag == 0 &&
+               rimport_flag == 0 &&
+               rtotal_flag  == 0 &&
                time_disp_flag == 0
        ) {
        // if no parameter, retrieve all values
         power_flag   = 1;
+        apower_flag  = 1;
+        rapower_flag = 1;
         volt_flag    = 1;
         current_flag = 1;
+        pangle_flag  = 1;
         freq_flag    = 1;
         pf_flag      = 1;
         export_flag  = 1;
         import_flag  = 1;
         total_flag   = 1;
-        count_param  = power_flag + volt_flag + current_flag + freq_flag + pf_flag + export_flag + import_flag + total_flag;
+        rexport_flag  = 1;
+        rimport_flag  = 1;
+        rtotal_flag   = 1;
+        count_param  = power_flag + apower_flag + rapower_flag + volt_flag + 
+                       current_flag + pangle_flag + freq_flag + pf_flag + 
+                       export_flag + import_flag + total_flag +
+                       rexport_flag + rimport_flag + rtotal_flag;
     }
 
     if (volt_flag == 1) {
@@ -1007,11 +1045,11 @@ int main(int argc, char* argv[])
         rapower = getMeasureFloat(ctx, RAPOWER, num_retries, 2);
         read_count++;
         if (metern_flag == 1) {
-            printf("%d(%5.2f*VAr)\n", device_address, rapower);
+            printf("%d(%5.2f*VAR)\n", device_address, rapower);
         } else if (compact_flag == 1) {
             printf("%4.2f ", rapower);
         } else {
-            printf("Reactive Apparent Power: %5.2f VAr \n", rapower);
+            printf("Reactive Apparent Power: %5.2f VAR \n", rapower);
         }
     }
 
@@ -1024,6 +1062,18 @@ int main(int argc, char* argv[])
             printf("%4.2f ", pf);
         } else {
             printf("Power Factor: %4.2f \n", pf);
+        }
+    }
+
+    if (pangle_flag == 1) {
+        pangle = getMeasureFloat(ctx, PANGLE, num_retries, 2);
+        read_count++;
+        if (metern_flag == 1) {
+            printf("%d(%4.2f*Dg)\n", device_address, pangle);
+        } else if (compact_flag == 1) {
+            printf("%4.2f ", pangle);
+        } else {
+            printf("Phase Angle: %4.2f Degree \n", pangle);
         }
     }
 
@@ -1075,6 +1125,42 @@ int main(int argc, char* argv[])
         }
     }
 
+    if (rimport_flag == 1) {
+        impr_energy = getMeasureFloat(ctx, IRAENERGY, num_retries, 2) * 1000;
+        read_count++;
+        if (metern_flag == 1) {
+            printf("%d(%d*VARh)\n", device_address, (int)(impr_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) impr_energy);
+        } else {
+            printf("Import Reactive Energy: %d VARh \n", (int)(impr_energy));
+        }
+    }
+
+    if (rexport_flag == 1) {
+        expr_energy = getMeasureFloat(ctx, ERAENERGY, num_retries, 2) * 1000;
+        read_count++;
+        if (metern_flag == 1) {
+            printf("%d(%d*VARh)\n", device_address, (int)(expr_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) expr_energy);
+        } else {
+            printf("Export Reactive Energy: %d VARh \n", (int)(expr_energy));
+        }
+    }
+
+    if (rtotal_flag == 1) {
+        totr_energy = getMeasureFloat(ctx, TRENERGY, num_retries, 2) * 1000;
+        read_count++;
+        if (metern_flag == 1) {
+            printf("%d(%d*VARh)\n", device_address, (int)(totr_energy));
+        } else if (compact_flag == 1) {
+            printf("%d ", (int) totr_energy);
+        } else {
+            printf("Total Reactive Energy: %d VARh \n", (int)(totr_energy));
+        }
+    }
+
     if (time_disp_flag == 1) {
         time_disp = getConfigBCD(ctx, TIME_DISP, num_retries, 1);
         read_count++;
@@ -1089,16 +1175,10 @@ int main(int argc, char* argv[])
         modbus_close(ctx);
         modbus_free(ctx);
         ClrSerLock(PID);
-        printf(" OK\n");
+        if (!metern_flag) printf("OK\n");
     } else {
         exit_error(ctx);
     }
-
-    /*
-    if (compact_flag == 1) {
-        printf("\n");
-    }
-    */
 
     return 0;
 }
