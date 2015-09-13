@@ -1,6 +1,36 @@
---- aurora-1.8.8/main.c	2015-01-27 02:37:17.397517079 +0100
-+++ my-aurora-1.8.8/main.c	2015-08-18 14:07:38.885727145 +0200
-@@ -414,18 +414,18 @@
+--- aurora-1.8.8/main.c	2015-01-27 02:37:17.000000000 +0100
++++ my-aurora-1.8.8/main.c	2015-09-13 09:49:55.965051981 +0200
+@@ -352,6 +352,7 @@
+         fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
+         exit(2);
+     }
++    errno=0;
+     bWrite = fprintf(fdserlck, "%lu\n", PID);
+     errno_save = errno;
+     fclose(fdserlck);
+@@ -373,17 +374,19 @@
+             fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for read.\n\n",getCurTime(),ProgramName,devLCKfile);
+             exit(2);
+         }
++        errno=0;
+         bRead = fscanf(fdserlck, "%lu", &rPID);
+         errno_save = errno;
+         fclose(fdserlck);
+-        if (bVerbose) fprintf(stderr, "\nChecking process %lu for lock\n",rPID);
+         fdserlck = NULL;
+         if (bRead == EOF || errno_save != 0) {
+             if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
++            fprintf(stderr, "%s: %s: Problem locking serial device, can't read PID from lock file: %s.\n",getCurTime(),ProgramName,devLCKfile);
++            if (errno_save != 0) fprintf(stderr, "%s: %s: (%u) %s\n\n",getCurTime(),ProgramName,errno,strerror(errno_save));
+             exit(2);
+         }
+ 
++        if (bVerbose) fprintf(stderr, "\nChecking process %lu for lock\n",rPID);
+         sPID[0] = '\0';
+         sprintf(sPID,"%lu",rPID);
+         cmdFile = getMemPtr(strlen(sPID)+14+1);
+@@ -414,18 +417,18 @@
              if (rPID == PID) fprintf (stderr, " = me");
              fprintf (stderr, "\n");
          }
@@ -24,3 +54,12 @@
      }
      if (bVerbose && rPID == PID) fprintf(stderr, "Appears we got the lock.\n");
      if (rPID != PID) {
+@@ -547,7 +550,7 @@
+         }
+         rc = -1;
+     }
+-    bCommCheck = FALSE;
++    //bCommCheck = FALSE;
+ 
+     if (rc == 0 && bSetTime) {
+         rc = SetTime(fdser,yAddress,FALSE);

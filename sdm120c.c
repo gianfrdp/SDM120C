@@ -85,7 +85,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.2.2";
+const char *version     = "1.2.3";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -220,6 +220,7 @@ int ClrSerLock(long unsigned int PID) {
             errno_save = errno;
             if (bWrite < 0 || errno_save != 0) {
                 log_message(debug_flag, "%s: Problem clearing serial device lock, can't write lock file: %s. %s",programName,devLCKfile,strerror (errno_save));
+                log_message(debug_flag, "%s: (%u) %s",programName,devLCKfile,errno_save,strerror(errno_save));
                 fclose(fdserlcknew);
                 return(0);
             }
@@ -487,12 +488,14 @@ void lockSer(const char *szttyDevice, int debug_flag)
         log_message(1, "Check execution permission of %s, it shoud be '-rws--x--x'.");        
         exit(2);
     }
+    errno=0;
     bWrite = fprintf(fdserlck, "%lu\n", PID);
     errno_save = errno;
     fclose(fdserlck);
     fdserlck = NULL;
     if (bWrite < 0 || errno_save != 0) {
         log_message(debug_flag, "%s: Problem locking serial device, can't write lock file: %s. %s",programName,devLCKfile,strerror (errno_save));
+        log_message(debug_flag, "%s: (%u) %s",programName,devLCKfile,errno_save, strerror(errno_save));
         exit(2);
     }
 
@@ -506,6 +509,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
             log_message(debug_flag, "%s: Problem locking serial device, can't open lock file: %s for read.",programName,devLCKfile);
             exit(2);
         }
+        errno=0;
         bRead = fscanf(fdserlck, "%lu", &rPID);
         errno_save = errno;
         fclose(fdserlck);
@@ -513,7 +517,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
         fdserlck = NULL;
         if (bRead == EOF || errno_save != 0) {
             log_message(debug_flag, "%s: Problem locking serial device, can't read lock file: %s.",programName,devLCKfile);
-            log_message(debug_flag, "%s",strerror (errno_save));
+            log_message(debug_flag, "%s: (%u) %s",programName,errno_save,strerror(errno_save));
             exit(2);
         }
 
