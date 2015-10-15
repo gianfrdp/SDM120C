@@ -13,4 +13,7 @@ clean:
 	rm -f *.o ${SDM}
 
 install: ${SDM}
-	cp ${SDM} /usr/local/bin
+	install -m 4711 $(SDM) /usr/local/bin
+
+uninstall:
+	rm -f /usr/local/$(SDM)
