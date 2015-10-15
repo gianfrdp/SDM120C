@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = `pkg-config --cflags libmodbus`
-LDFLAGS = `pkg-config --libs libmodbus`
+CFLAGS  = -Wall -g `pkg-config --cflags libmodbus`
+LDFLAGS = -Wall -g `pkg-config --libs libmodbus`
 
 SDM = sdm120c
 %.o: %.c
