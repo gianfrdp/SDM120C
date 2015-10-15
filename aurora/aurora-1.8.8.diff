@@ -1,0 +1,353 @@
+--- aurora-1.8.8/main.c	2015-01-27 02:37:17.000000000 +0100
++++ my-aurora-1.8.8/main.c	2015-10-15 16:59:38.000000000 +0200
+@@ -79,6 +79,7 @@
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #include <sys/time.h>
++#include <sys/file.h>
+ #include <fcntl.h>
+ #include <termios.h>
+ #include <stdio.h>
+@@ -92,10 +93,16 @@
+ #include <time.h>
+ #include <errno.h>
+ #include <error.h>
++#include <glob.h>
++
+ #include "include/main.h"
+ #include "include/comm.h"
+ #include "include/names.h"
+ 
++// Enable checks for inter-lock problems debug
++#define CHECKFORGHOSTAPPEND     0
++#define CHECKFORCLEARLOCKRACE   0
++
+ BOOL bVerbose = FALSE;
+ BOOL bColumns = FALSE;		/* Output data in columns */
+ int yGetDSP = -1;		/* Measure request to the DSP */
+@@ -203,7 +210,8 @@
+     char EndTime[18] = " ";
+     long unsigned int rPID;
+     char sPID[10];
+-    int bRead, bWrite, lckCNT;
++    struct timeval tLockStart, tLockNow;
++    int bRead;
+     int errno_save = 0;
+     int fLen = 0;
+     char *cmdFile = NULL;
+@@ -345,27 +353,16 @@
+         exit(0);
+     }
+ 
+-    if (bVerbose) fprintf(stderr, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
+-    fdserlck = fopen((const char *)devLCKfile, "a");
+-    if (fdserlck == NULL) {
+-        if (bVerbose) fprintf(stderr, "\n");
+-        fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
+-        exit(2);
+-    }
+-    bWrite = fprintf(fdserlck, "%lu\n", PID);
+-    errno_save = errno;
+-    fclose(fdserlck);
+-    fdserlck = NULL;
+-    if (bWrite < 0 || errno_save != 0) {
+-        if (bVerbose) fprintf(stderr, "\n");
+-        fprintf(stderr, "%s: %s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
+-        exit(2);
+-    }
++    AddSerLock(PID);
+ 
+     rPID = 0;
+-    lckCNT = -1;
+-    while(rPID != PID && lckCNT++ < yLockWait) {
+-        if (bVerbose && lckCNT == 0) fprintf(stderr, "Checking for lock\n");
++    
++    gettimeofday(&tLockStart, NULL);
++    tLockNow=tLockStart;
++    
++    while(rPID != PID &&
++          tLockNow.tv_sec*1000+tLockNow.tv_usec/1000 < tLockStart.tv_sec*1000 + tLockStart.tv_usec/1000 + yLockWait*1000) {
++        if (bVerbose) fprintf(stderr, "Checking for lock\n");
+         SubStrPos = NULL;
+         fdserlck = fopen(devLCKfile, "r");
+         if (fdserlck == NULL) {
+@@ -373,17 +370,26 @@
+             fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for read.\n\n",getCurTime(),ProgramName,devLCKfile);
+             exit(2);
+         }
+-        bRead = fscanf(fdserlck, "%lu", &rPID);
++        errno=0;
++        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
+         errno_save = errno;
+         fclose(fdserlck);
+-        if (bVerbose) fprintf(stderr, "\nChecking process %lu for lock\n",rPID);
+         fdserlck = NULL;
+         if (bRead == EOF || errno_save != 0) {
+             if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
++            fprintf(stderr, "%s: %s: Problem locking serial device, can't read PID from lock file: %s.\n",getCurTime(),ProgramName,devLCKfile);
++            if (errno_save != 0) fprintf(stderr, "%s: %s: (%u) %s\n\n",getCurTime(),ProgramName,errno,strerror(errno_save));
++            else {
++                // Self PID missing...
++                if (bVerbose) fprintf(stderr, "%s: %s miss process self PID from lock file, amending.",ProgramName,devLCKfile);
++                AddSerLock(PID);
++                rPID=0;
++                continue;
++            }
+             exit(2);
+         }
+ 
++        if (bVerbose) fprintf(stderr, "\nChecking process %lu for lock\n",rPID);
+         sPID[0] = '\0';
+         sprintf(sPID,"%lu",rPID);
+         cmdFile = getMemPtr(strlen(sPID)+14+1);
+@@ -414,19 +420,22 @@
+             if (rPID == PID) fprintf (stderr, " = me");
+             fprintf (stderr, "\n");
+         }
+-        if (command != NULL) {
+-            free(command);
+-            command = NULL;
+-        }
+         if (rPID != PID) {
+-             if (SubStrPos == NULL) {
++             if (command == NULL) {	// Clear stale only rPID process is dead 
+                  if (bVerbose) fprintf (stderr, "\n");
+                  fprintf(stderr, "%s: %s: Clearing stale serial port lock. (%lu)\n",getCurTime(),ProgramName,rPID);
+                  ClrSerLock(rPID);
+-             } else if (yLockWait > 0)
+-                 sleep(1);
++             } else if (yLockWait > 0) {
++                 if (bVerbose) fprintf(stderr, "Sleeping 25ms");
++                 usleep(25000);
+         }
+     }
++        if (command != NULL) {
++            free(command);
++            command = NULL;
++        }
++        gettimeofday(&tLockNow, NULL);
++    }
+     if (bVerbose && rPID == PID) fprintf(stderr, "Appears we got the lock.\n");
+     if (rPID != PID) {
+         ClrSerLock(PID);
+@@ -681,31 +690,31 @@
+ ----------------------------------------------------------------------------*/
+ int RestorePort(int fdser) {
+ 
+-    if (bVerbose) fprintf(stderr, "\nRestoring Serial Port settings %s...", szttyDevice);
+-    if (tcsetattr(fdser, TCSANOW, &oldtio)) {		/* restore previous port settings */
++    if (bVerbose) { fprintf(stderr, "\nFlushing serial device buffer..."); }
++    errno = 0;
++    if (tcflush(fdser, TCIOFLUSH)) {
+         if (bVerbose) fprintf(stderr, "\n");
+-        fprintf(stderr, "%s: %s: Problem restoring serial device settings.\n",getCurTime(),ProgramName);
++        fprintf(stderr, "\n%s: %s: Problem flushing serial device: (%i) %s\n\n",getCurTime(),ProgramName,errno,strerror(errno));
+         if (bVerbose) fprintf(stderr, "Closing Serial Port %s...",szttyDevice);
+         if (close(fdser)) {
+             if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem closing serial device, check device name.\n",getCurTime(),ProgramName);
++            fprintf(stderr, "%s: %s: Problem closing serial device.\n",getCurTime(),ProgramName);
+         }
+-        if (bVerbose) fprintf(stderr, " Success!\n");
++        if (bVerbose) { fprintf(stderr, " Success!\n"); }
+         return 2;
+     }
+ 
+-    if (bVerbose) { fprintf(stderr, " Success!\nFlushing serial device buffer..."); }
++    if (bVerbose) fprintf(stderr, " Success!\nRestoring Serial Port settings %s...", szttyDevice);
+ 
+-    errno = 0;
+-    if (tcflush(fdser, TCIOFLUSH)) {
++    if (tcsetattr(fdser, TCSADRAIN, &oldtio)) {		/* restore previous port settings */
+         if (bVerbose) fprintf(stderr, "\n");
+-        fprintf(stderr, "\n%s: %s: Problem flushing serial device: (%i) %s\n\n",getCurTime(),ProgramName,errno,strerror(errno));
++        fprintf(stderr, "%s: %s: Problem restoring serial device settings.\n",getCurTime(),ProgramName);
+         if (bVerbose) fprintf(stderr, "Closing Serial Port %s...",szttyDevice);
+         if (close(fdser)) {
+             if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem closing serial device.\n",getCurTime(),ProgramName);
++            fprintf(stderr, "%s: %s: Problem closing serial device, check device name.\n",getCurTime(),ProgramName);
+         }
+-        if (bVerbose) { fprintf(stderr, " Success!\n"); }
++        if (bVerbose) fprintf(stderr, " Success!\n");
+         return 2;
+     }
+ 
+@@ -720,6 +729,52 @@
+     return 0;
+ }
+ 
++/*--------------------------------------------------------------------------
++    AddSerLock
++    Queue Serial Port lock intent.
++----------------------------------------------------------------------------*/
++int AddSerLock(const long unsigned int PID) {
++    FILE *fdserlck;
++    int bWrite;
++    int errno_save = 0;
++    
++    if (bVerbose) fprintf(stderr, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
++    do {
++        fdserlck = fopen((const char *)devLCKfile, "a");
++        if (fdserlck == NULL) {
++            if (bVerbose) fprintf(stderr, "\n");
++            fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
++            exit(2);
++        }
++        if (bVerbose) fprintf(stderr, "Acquiring shared lock on %s...\n",devLCKfile);
++        errno = 0;
++        
++        if (flock(fileno(fdserlck), LOCK_SH | LOCK_NB) == 0 ) break;      // Lock Acquired 
++        errno_save=errno;
++        
++        if (errno_save == EWOULDBLOCK) {
++            if (bVerbose) fprintf(stderr, "Whould block %s, retry (%d)...\n",devLCKfile, errno_save);
++            usleep(25000);
++            fclose(fdserlck);
++        } else {
++            fprintf(stderr, "%s: Problem locking serial device, can't open lock file: %s for write. (%d)\n",ProgramName,devLCKfile, errno_save);
++            exit(2);
++        }
++    } while (errno_save == EWOULDBLOCK);
++    if (bVerbose) fprintf(stderr, "Shared lock on %s acquired...\n",devLCKfile);
++
++    errno=0;
++    bWrite = fprintf(fdserlck, "%lu\n", PID);
++    errno_save = errno;
++    fclose(fdserlck);                   // Will release lock
++    fdserlck = NULL;
++    if (bWrite < 0 || errno_save != 0) {
++        if (bVerbose) fprintf(stderr, "\n");
++        fprintf(stderr, "%s: %s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror(errno_save));
++        exit(2);
++    }
++    return -1;
++ }
+ 
+ /*--------------------------------------------------------------------------
+     ClrSerLock
+@@ -732,39 +787,106 @@
+     int errno_save = 0;
+ 
+     errno = 0;
+-    if (bVerbose) fprintf(stderr, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\nClearing Serial Port Lock (%lu)...", devLCKfile, devLCKfileNew, PID);
++    if (bVerbose) fprintf(stderr, "\ndevLCKfile: <%s>\ndevLCKfileNew: <%s>\nClearing Serial Port Lock (%lu)...\n", devLCKfile, devLCKfileNew, PID);
+     fdserlck = fopen(devLCKfile, "r");
+     if (fdserlck == NULL) {
+         if (bVerbose) fprintf(stderr, "\n");
+         fprintf(stderr, "\n%s: %s: Problem opening serial device lock file to clear PID %lu: %s for read.\n\n",getCurTime(),ProgramName,PID,devLCKfile);
+         return(0);
+     }
+-    fdserlcknew = fopen(devLCKfileNew, "w");
++    if (bVerbose) fprintf(stderr, "Acquiring exclusive lock on %s...\n",devLCKfile);
++    flock(fileno(fdserlck), LOCK_EX);   // Will wait to acquire lock then continue
++    if (bVerbose) fprintf(stderr, "Exclusive lock on %s acquired (%d)...\n",devLCKfile, errno);
++    
++#if CHECKFORCLEARLOCKRACE
++       
++    // Check for potential conflicts
++    glob_t globbuf;
++    int iGlob, fGlob = TRUE;
++    
++    if (bVerbose) fprintf(stderr, "GlobCheck - Check to avoid simultaneous PID clearing\n");
++    for (iGlob=5; iGlob>0 && fGlob; iGlob-- ) {
++      fGlob = FALSE;      
++      if (glob("/var/lock/LCK..ttyUSB0.*", GLOB_NOSORT, NULL, &globbuf) != GLOB_NOMATCH) {
++          if (bVerbose) fprintf(stderr, "%s: GlobCheck (%u), some other process is clearing lock too!!! (%s)\n",ProgramName, iGlob, globbuf.gl_pathv[0]);
++          fGlob=TRUE;
++          if (bVerbose) fprintf(stderr, "Sleeping 500ms\n");
++          usleep(500000);
++      }
++      globfree(&globbuf);
++    }
++    
++#endif
++    
++    fdserlcknew = fopen(devLCKfileNew, "a");
+     if (fdserlcknew == NULL) {
+         if (bVerbose) fprintf(stderr, "\n");
+         fprintf(stderr, "\n%s: %s: Problem opening new serial device lock file to clear PID %lu: %s for write.\n\n",getCurTime(),ProgramName,PID,devLCKfileNew);
+         fclose(fdserlck);
+         return(0);
+     }
+-    bRead = fscanf(fdserlck, "%lu", &rPID);
+-    while (bRead != EOF) {
++    errno = 0;
++    bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++    errno_save = errno;
++    if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu\n", ProgramName, errno_save, bRead, PID, rPID);
++    
++    while (bRead != EOF && bRead > 0) {
+         if (rPID != PID) {
+             errno = 0;
+             bWrite = fprintf(fdserlcknew, "%lu\n", rPID);
+             errno_save = errno;
++            if (bVerbose) fprintf(stderr, "%s: errno=%i, bWrite=%i rPID=%lu\n", ProgramName, errno, bWrite, rPID);
++            if (bWrite < 0 || errno_save != 0) {
++                fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror(errno_save));
++                fclose(fdserlcknew);
++                return(0);
++            }
++        }
++        errno=0; rPID=0;
++        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++        errno_save = errno;
++        if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu\n", ProgramName, errno_save, bRead, PID, rPID);
++    }
++
++    fflush(fdserlcknew);
++
++    errno = 0;
++    if (rename(devLCKfileNew,devLCKfile)) fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't update lock file: %s.\n(%d) %s\n\n",getCurTime(),ProgramName,devLCKfile,errno,strerror(errno));
++
++#if CHECKFORGHOSTAPPEND
++
++    if (bVerbose) fprintf(stderr, " Clearing Serial Port Lock amost done...\n");
++    
++    fprintf(stderr, " Sleeping 10ms\n");
++    usleep(10000);
++
++    // Check for latest appends (ghost appends)
++    int iGhost=10;
++    bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++    while (iGhost > 0) {
++        if (bRead > 0 ) {
++            if (bVerbose) fprintf(stderr, "%s: Found ghost append: %s. %lu\n",ProgramName,devLCKfile,rPID);
++            errno = 0;            
++            bWrite = fprintf(fdserlcknew, "%lu\n", rPID);
++            errno_save = errno;
+             if (bWrite < 0 || errno_save != 0) {
+                 fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
+                 fclose(fdserlcknew);
+                 return(0);
+             }
+         }
+-        bRead = fscanf(fdserlck, "%lu", &rPID);
++        fprintf(stderr, " Sleeping 10ms\n");
++        usleep(10000);
++        iGhost--; rPID=0;
++        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
+     }
++
++#endif
++
+     fclose(fdserlck);
+     fclose(fdserlcknew);
+-    errno = 0;
+-    if (rename(devLCKfileNew,devLCKfile)) fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno));
+-    if (bVerbose) fprintf(stderr, " done.\n");
++
++    if (bVerbose) fprintf(stderr, " Clearing Serial Port Lock done.\n");
+ 
+     return -1;
+ }
+@@ -1138,7 +1260,7 @@
+ 
+     ptr = malloc(mSize);
+     if (!ptr) {
+-        fprintf(stderr, "\nvproweather: malloc failed\n");
++        fprintf(stderr, "\n%s: malloc failed\n", ProgramName);
+         exit(2);
+     }
+     cptr = (char *)ptr;

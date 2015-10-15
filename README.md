@@ -52,10 +52,11 @@ where
     -m             Output values in IEC 62056 format ID(VALUE*UNIT)
     -q             Output values in compact mode
     -z num_retries Try to read max num_retries times on bus before exiting
-                   with error. Default: 1
-    -j seconds     Response timeout. Default: 2
-    -w seconds     tTime to wait to lock serial port. (1-30) Default: 0
-    -1             Model: SDM120C (defualt)
+                   with error. Default: 1 (no retry)
+    -j 1/10 secs   Response timeout. Default: 2=0.2s
+    -D 1/1000 secs Delay before sending commands (wait line set). Default: 30=0.03s
+    -w seconds     Time to wait to lock serial port. (1-30s) Default: 0s
+    -1             Model: SDM120C (default)
     -2             Model: SDM220
     device         Serial device, i.e. /dev/ttyUSB0
 
