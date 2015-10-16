@@ -104,7 +104,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.0";
+const char *version     = "1.3.1";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -694,9 +694,9 @@ void lockSer(const char *szttyDevice, int debug_flag)
     
     gettimeofday(&tLockStart, NULL);
     tLockNow=tLockStart;
-    
+
     if (debug_flag) log_message(debug_flag, "Checking for lock");
-    while(rPID != PID && tv_diff(&tLockNow, &tLockStart)/1000 < yLockWait*1000) {
+    while(rPID != PID && tv_diff(&tLockNow, &tLockStart) <= yLockWait*1000000L) {
         SubStrPos = NULL;
         fdserlck = fopen(devLCKfile, "r");
         if (fdserlck == NULL) {

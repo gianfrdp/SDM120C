@@ -1,5 +1,46 @@
+--- aurora-1.8.8/comm.c	2015-01-27 02:37:36.000000000 +0100
++++ my-aurora-1.8.8/comm.c	2015-10-09 19:09:15.000000000 +0200
+@@ -1783,7 +1783,7 @@
+             if (bVerbose)
+                 fprintf(stderr, "Waiting %d milli-seconds before reading inverter response\n",yReadPause);
+             else
+-                if (bRptReadPause) fprintf(stderr, "\n%s: %s: Waiting %d milli-seconds before reading inverter response",getCurTime(),ProgramName,yReadPause);
++                if (bRptReadPause) fprintf(stderr, "\n%s: %s: Waiting %d milli-seconds before reading inverter response\n",getCurTime(),ProgramName,yReadPause);
+             usleep(yReadPause*1000);
+         }
+         nCnt = ReadToBuffer(fdser, szSerBuffer, aSIZE);
+@@ -1802,7 +1802,7 @@
+             if ((unsigned char)szSerBuffer[aCRC_L] != LOBYTE(crcValue) || (unsigned char)szSerBuffer[aCRC_H] != HIBYTE(crcValue)) {
+                 if (yMaxAttempts == 1 || attempts == yMaxAttempts)
+                     if (!bCommCheck) {
+-                        if (! bVerbose && bRptReadPause) fprintf(stderr, "\n");
++                        if (! bVerbose ) fprintf(stderr, "\n");
+                         fprintf(stderr, "%s: CRC receive error (%i attempts made) %04x %02x %02x\n",getCurTime(),attempts,crcValue,(unsigned char)szSerBuffer[aCRC_H],(unsigned char)szSerBuffer[aCRC_L]);
+                     }
+             } else {
+@@ -1819,8 +1819,8 @@
+     if (bRptReties) {
+         fprintf(stderr, "\n%s: %s: %i attempts made",getCurTime(),ProgramName,attempts-1);
+         if (bVerbose) fprintf(stderr, "\n");
+-    } else
+-        if (bRptReadPause) fprintf(stderr, "\n");
++    } //else
++      //  if (bRptReadPause) fprintf(stderr, "\n");
+     return(nCnt);
+ }
+ 
+--- aurora-1.8.8/include/main.h	2015-01-27 02:38:07.000000000 +0100
++++ my-aurora-1.8.8/include/main.h	2015-10-12 12:14:15.000000000 +0200
+@@ -85,6 +85,7 @@
+ extern FILE *outfp;
+ 
+ extern char* getCurTime();
++extern int AddSerLock(long unsigned int PID);
+ extern int ClrSerLock(long unsigned int PID);
+ extern int RestorePort(int fdser);
+ 
 --- aurora-1.8.8/main.c	2015-01-27 02:37:17.000000000 +0100
-+++ my-aurora-1.8.8/main.c	2015-10-15 16:59:38.000000000 +0200
++++ my-aurora-1.8.8/main.c	2015-10-16 18:17:02.000000000 +0200
 @@ -79,6 +79,7 @@
  #include <sys/types.h>
  #include <sys/stat.h>
@@ -66,7 +107,7 @@
 +    tLockNow=tLockStart;
 +    
 +    while(rPID != PID &&
-+          tLockNow.tv_sec*1000+tLockNow.tv_usec/1000 < tLockStart.tv_sec*1000 + tLockStart.tv_usec/1000 + yLockWait*1000) {
++          tLockNow.tv_sec*1000000L+tLockNow.tv_usec <= tLockStart.tv_sec*1000000L + tLockStart.tv_usec + yLockWait*1000000L) {
 +        if (bVerbose) fprintf(stderr, "Checking for lock\n");
          SubStrPos = NULL;
          fdserlck = fopen(devLCKfile, "r");

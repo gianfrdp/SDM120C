@@ -197,7 +197,7 @@
 +    tLockNow=tLockStart;
 +    
 +    while(LckPID != PID &&
-+          tLockNow.tv_sec*1000+tLockNow.tv_usec/1000 < tLockStart.tv_sec*1000 + tLockStart.tv_usec/1000 + yLockWait*1000) {
++          tLockNow.tv_sec*1000000L+tLockNow.tv_usec <= tLockStart.tv_sec*1000000L + tLockStart.tv_usec + yLockWait*1000000L) {
          if (bVerbose && lckCNT == 0 && lckCNTbeg) {
              fprintf(stderr, "Checking for lock\n");
              lckCNTbeg = FALSE;

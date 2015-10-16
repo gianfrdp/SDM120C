@@ -8,6 +8,7 @@ SDM = sdm120c
 
 ${SDM}: sdm120c.o 
 	$(CC) -o $@ sdm120c.o $(LDFLAGS)
+	chmod 4711 ${SDM}
 
 clean:
 	rm -f *.o ${SDM}
