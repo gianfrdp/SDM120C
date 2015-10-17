@@ -104,7 +104,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.1";
+const char *version     = "1.3.2";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -112,8 +112,10 @@ const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial po
 char cmdline[CMDLINESIZE]="";    
 long unsigned int PID;
 
-static int yLockWait = 0;       /* Seconds to wait to lock serial port */
-static int command_delay = 30;  /* MilliSeconds to wait before sending a command */
+static int yLockWait = 0;          /* Seconds to wait to lock serial port */
+static time_t command_delay = 0;   // = 30;  /* MilliSeconds to wait before sending a command */
+static time_t settle_time = 0;     // us to wait line to settle before starting chat
+
 char *devLCKfile = NULL;
 char *devLCKfileNew = NULL;
 
@@ -155,9 +157,10 @@ void usage(char* program) {
     printf("\t-q \t\tOutput values in compact mode\n");
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
     printf("\t\t\twith error. Default: 1 (no retry)\n");
-    printf("\t-j 1/10 secs\tResponse timeout. Default: 2=0.2s\n");
-    printf("\t-D 1/1000 secs\tDelay before sending commands (wait line set). Default: 30=0.03s\n");
+    printf("\t-j 1/10 secs\tResponse timeout. Default: 10=1s\n");
+    printf("\t-D 1/1000 secs\tDelay before sending commands (wait line set). Default: 1.5*3.5t\n");
     printf("\t-w seconds\tTime to wait to lock serial port. (1-30s) Default: 0s\n");
+    printf("\t-W 1/1000 secs\tTime to wait for 485 line to settle. Default: 3*3.5t\n");
     printf("\t-1 \t\tModel: SDM120C (default)\n");
     printf("\t-2 \t\tModel: SDM220\n");
     printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
@@ -219,14 +222,20 @@ void log_message(const int logmask, const char* format, ...) {
     }
     
     if (logmask & DEBUG_STDERR) {
-       fprintf(stderr, "%s: %lu ", getCurTime(), PID);
+       fprintf(stderr, "%s: %s(%lu) ", getCurTime(), programName, PID);
        fprintf(stderr, buffer);
        fprintf(stderr, "\n");
     }
     
     if (logmask & DEBUG_SYSLOG) {
         openlog("sdm120c", LOG_PID|LOG_CONS, LOG_USER);
-        if (!bCmdlineSyslogged) { syslog(LOG_INFO, cmdline); bCmdlineSyslogged++; }
+        if (!bCmdlineSyslogged) { 
+            char versionbuffer[strlen(programName)+strlen(version)+3];
+            snprintf(versionbuffer, strlen(programName)+strlen(version)+3, "%s v%s", programName, version);
+            syslog(LOG_INFO, versionbuffer);
+            syslog(LOG_INFO, cmdline);
+            bCmdlineSyslogged++;
+        }
         syslog(LOG_INFO, buffer);
         closelog();
     }
@@ -243,7 +252,7 @@ void *getMemPtr(size_t mSize)
 
     ptr = malloc(mSize);
     if (!ptr) {
-        log_message(debug_flag | LOG_SYSLOG, "\n%s: malloc failed\n", programName);
+        log_message(debug_flag | LOG_SYSLOG, "malloc failed");
         exit(2);
     }
     cptr = (char *)ptr;
@@ -267,7 +276,7 @@ int ClrSerLock(long unsigned int PID) {
     log_message(debug_flag, "Clearing Serial Port Lock (%lu)...", PID);
     fdserlck = fopen(devLCKfile, "r");
     if (fdserlck == NULL) {
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem opening serial device lock file to clear PID %lu: %s for read.",programName,PID,devLCKfile);
+        log_message(debug_flag | DEBUG_SYSLOG, "Problem opening serial device lock file to clear PID %lu: %s for read.",PID,devLCKfile);
         return(0);
     }
     log_message(debug_flag, "Acquiring exclusive lock on %s...",devLCKfile);
@@ -284,7 +293,7 @@ int ClrSerLock(long unsigned int PID) {
     for (iGlob=5; iGlob>0 && fGlob; iGlob--) {
       fGlob = FALSE;      
       if (glob("/var/lock/LCK..ttyUSB0.*", GLOB_NOSORT, NULL, &globbuf) != GLOB_NOMATCH) {
-          log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: GlobCheck (%u), some other process is clearing lock too!!! (%s)",programName, iGlob, globbuf.gl_pathv[0]);
+          log_message(DEBUG_STDERR | DEBUG_SYSLOG, "GlobCheck (%u), some other process is clearing lock too!!! (%s)",iGlob, globbuf.gl_pathv[0]);
           fGlob=TRUE;
           log_message(debug_flag, "Sleeping 500ms");
           usleep(500000);
@@ -296,24 +305,24 @@ int ClrSerLock(long unsigned int PID) {
     
     fdserlcknew = fopen(devLCKfileNew, "a");
     if (fdserlcknew == NULL) {
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem opening new serial device lock file to clear PID %lu: %s for write.",programName,PID,devLCKfileNew);
+        log_message(debug_flag | DEBUG_SYSLOG, "Problem opening new serial device lock file to clear PID %lu: %s for write.",PID,devLCKfileNew);
         fclose(fdserlck);
         return(0);
     }
     errno = 0;
     bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
     errno_save = errno;
-    log_message(debug_flag, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu", programName, errno_save, bRead, PID, rPID);
+    log_message(debug_flag, "errno=%i, bRead=%i PID=%lu rPID=%lu", errno_save, bRead, PID, rPID);
     
     while (bRead != EOF && bRead > 0) {
         if (rPID != PID) {
             errno = 0;
             bWrite = fprintf(fdserlcknew, "%lu\n", rPID);
             errno_save = errno;
-            log_message(debug_flag, "%s: errno=%i, bWrite=%i rPID=%lu", programName, errno, bWrite, rPID);
+            log_message(debug_flag, "errno=%i, bWrite=%i rPID=%lu", errno, bWrite, rPID);
             if (bWrite < 0 || errno_save != 0) {
-                log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem clearing serial device lock, can't write lock file: %s. %s",programName,devLCKfile,strerror (errno_save));
-                log_message(debug_flag | DEBUG_SYSLOG, "%s: (%u) %s",programName,errno_save,strerror(errno_save));
+                log_message(debug_flag | DEBUG_SYSLOG, "Problem clearing serial device lock, can't write lock file: %s. %s",devLCKfile,strerror(errno_save));
+                log_message(debug_flag | DEBUG_SYSLOG, "(%u) %s",errno_save,strerror(errno_save));
                 fclose(fdserlcknew);
                 return(0);
             }
@@ -321,14 +330,14 @@ int ClrSerLock(long unsigned int PID) {
         errno=0; rPID=0;
         bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
         errno_save = errno;
-        log_message(debug_flag, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu", programName, errno_save, bRead, PID, rPID);
+        log_message(debug_flag, "errno=%i, bRead=%i PID=%lu rPID=%lu", errno_save, bRead, PID, rPID);
     }
     
     fflush(fdserlcknew);
 
     errno = 0;
     if (rename(devLCKfileNew,devLCKfile)) { 
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem clearing serial device lock, can't update lock file: %s.",programName,devLCKfile);
+        log_message(debug_flag | DEBUG_SYSLOG, "Problem clearing serial device lock, can't update lock file: %s.",devLCKfile);
         log_message(debug_flag | DEBUG_SYSLOG, "(%d) %s", errno, strerror(errno));
     }
 
@@ -344,13 +353,13 @@ int ClrSerLock(long unsigned int PID) {
     bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
     while (iGhost > 0) {
         if (bRead > 0) {
-            log_message(debug_flag | DEBUG_SYSLOG, "%s: Found ghost append (%d): %s. %lu",programName,iGhost,devLCKfile,rPID);
+            log_message(debug_flag | DEBUG_SYSLOG, "Found ghost append (%d): %s. %lu",iGhost,devLCKfile,rPID);
             errno = 0;            
             bWrite = fprintf(fdserlcknew, "%lu\n", rPID);
             errno_save = errno;
             if (bWrite < 0 || errno_save != 0) {
-                log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem clearing serial device lock, can't write lock file: %s. %s",programName,devLCKfile,strerror (errno_save));
-                log_message(debug_flag | DEBUG_SYSLOG, "%s: (%u) %s", programName, errno_save, strerror(errno_save));
+                log_message(debug_flag | DEBUG_SYSLOG, "Problem clearing serial device lock, can't write lock file: %s. %s",devLCKfile,strerror (errno_save));
+                log_message(debug_flag | DEBUG_SYSLOG, "(%u) %s", errno_save, strerror(errno_save));
                 fclose(fdserlcknew);
                 return(0);
             }
@@ -384,7 +393,7 @@ int AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsig
     do {
         fdserlck = fopen((const char *)devLCKfile, "a");
         if (fdserlck == NULL) {
-            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: Problem locking serial device, can't open lock file: %s for write.",programName,devLCKfile);
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for write.",devLCKfile);
             log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Check execution permission for %s, it shoud be '-rws--x--x'.");        
             exit(2);
         }
@@ -399,7 +408,7 @@ int AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsig
             usleep(25000);
             fclose(fdserlck);
         } else {
-            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: Problem locking serial device, can't open lock file: %s for write. (%d) %s", programName, devLCKfile, errno_save, strerror(errno_save));
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for write. (%d) %s", devLCKfile, errno_save, strerror(errno_save));
             exit(2);
         }
     } while (errno_save == EWOULDBLOCK);
@@ -411,8 +420,8 @@ int AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsig
     fclose(fdserlck);                   // Will release lock
     fdserlck = NULL;
     if (bWrite < 0 || errno_save != 0) {
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem locking serial device, can't write lock file: %s.", programName, devLCKfile);
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: (%u) %s", programName, devLCKfile, errno_save, strerror(errno_save));
+        log_message(debug_flag | DEBUG_SYSLOG, "Problem locking serial device, can't write lock file: %s.", devLCKfile);
+        log_message(debug_flag | DEBUG_SYSLOG, "(%u) %s", devLCKfile, errno_save, strerror(errno_save));
         exit(2);
     }
     return -1;
@@ -420,6 +429,12 @@ int AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsig
 
 inline void exit_error(modbus_t *ctx)
 {
+/*
+      // Wait for line settle
+      log_message(debug_flag, "Sleeping %dms for line settle...", settle_time);
+      usleep(1000 * settle_time);
+      log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
+*/
       modbus_close(ctx);
       modbus_free(ctx);
       ClrSerLock(PID);
@@ -474,17 +489,19 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      log_message(debug_flag, "Sleeping %dms", command_delay);
-      usleep(command_delay*1000);
+      log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+      usleep(command_delay);
 
       log_message(debug_flag, "%d/%d. Register Address %d [%04X]", j, retries, 30000+address+1, address);
-      rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
+      rc = modbus_read_input_registers(ctx, address, nb, tab_reg); // will wait response_timeout for a reply
 
       if (rc == -1) {
         log_message(debug_flag | DEBUG_SYSLOG, "%s: ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
-        modbus_flush(ctx);
-        log_message(debug_flag, "Sleeping %dms", command_delay);
-        usleep(command_delay*1000);
+        /* libmodbus already flushes 
+        log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
+        */
+        log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+        usleep(command_delay);
       } else {
         exit_loop = 1;
       }
@@ -520,23 +537,26 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      log_message(debug_flag, "Sleeping %dms", command_delay);
-      usleep(command_delay*1000);
+      log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+      usleep(command_delay);
 
       log_message(debug_flag, "%d/%d. Register Address %d [%04X]", j, retries, 30000+address+1, address);
       gettimeofday(&tvStart, NULL); 
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg);
       errno_save = errno;
       gettimeofday(&tvStop, NULL); 
-      log_message(debug_flag, "Read time: %ldms", tv_diff(&tvStop, &tvStart)/1000);
+      log_message(debug_flag, "Read time: %ldus", tv_diff(&tvStop, &tvStart));
 
       if (rc == -1) {
         if (trace_flag) fprintf(stderr, "%s: ERROR (%d) %s, %d/%d\n", programName, errno_save, modbus_strerror(errno_save), j, retries);
         log_message(debug_flag | DEBUG_SYSLOG, "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno_save, modbus_strerror(errno_save), j, retries, 30000+address+1, address);
+        log_message(debug_flag | DEBUG_SYSLOG, "Read time: %ldus", tv_diff(&tvStop, &tvStart));
+        /* libmodbus already flushes 
         log_message(debug_flag, "Flushing modbus buffer");
-        modbus_flush(ctx);
-        log_message(debug_flag, "Sleeping %dms", command_delay);
-        usleep(command_delay*1000);
+        log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
+        */
+        log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+        usleep(command_delay);
       } else {
         exit_loop = 1;
       }
@@ -576,17 +596,20 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
     while (j < retries && exit_loop == 0) {
       j++;
 
-      log_message(debug_flag, "Sleeping %dms", command_delay);
-      usleep(command_delay*1000);
+      log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+      usleep(command_delay);
 
       log_message(debug_flag, "%d/%d. Register Address %d [%04X]", j, retries, 400000+address+1, address);
       rc = modbus_read_registers(ctx, address, nb, tab_reg);
 
       if (rc == -1) {
-        log_message(debug_flag | DEBUG_SYSLOG, "%s: ERROR (%d) %s, %d/%d, Address %d [%04X]", programName, errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
-        modbus_flush(ctx);
-        log_message(debug_flag, "Sleeping %dms", command_delay);
-        usleep(command_delay*1000);
+        log_message(debug_flag | DEBUG_SYSLOG, "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
+        /* libmodbus already flushes 
+        log_message(debug_flag, "Flushing modbus buffer");
+        log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
+        */
+        log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+        usleep(command_delay);
       } else {
         exit_loop = 1;
       }
@@ -619,15 +642,15 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, i
     tab_reg[0] = tmp2;
     tab_reg[1] = tmp1;
 
-    log_message(debug_flag, "Sleeping %dms", command_delay);
-    usleep(command_delay*1000);
+    log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+    usleep(command_delay);
 
     int n = modbus_write_registers(ctx, address, nb, tab_reg);
     if (n != -1) {
         printf("New value %d for address 0x%X\n", new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: error: (%d) %s, %d, %d", programName, errno, modbus_strerror(errno), n);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
         exit_error(ctx);
     }
 }
@@ -638,15 +661,15 @@ void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int
     uint16_t u_new_value = int2bcd(new_value);
     tab_reg[0] = u_new_value;
 
-    log_message(debug_flag, "Sleeping %dms", command_delay);
-    usleep(command_delay*1000);
+    log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+    usleep(command_delay);
 
     int n = modbus_write_registers(ctx, address, nb, tab_reg);
     if (n != -1) {
         printf("New value %d for address 0x%X\n", u_new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: error: (%d) %s, %d, %d", programName, errno, modbus_strerror(errno), n);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
         exit_error(ctx);
     }
 }
@@ -691,16 +714,18 @@ void lockSer(const char *szttyDevice, int debug_flag)
     AddSerLock(szttyDevice, devLCKfile, PID, debug_flag);
 
     rPID = 0;
+    int oldrPID = 0;
     
     gettimeofday(&tLockStart, NULL);
     tLockNow=tLockStart;
 
     if (debug_flag) log_message(debug_flag, "Checking for lock");
     while(rPID != PID && tv_diff(&tLockNow, &tLockStart) <= yLockWait*1000000L) {
+
         SubStrPos = NULL;
         fdserlck = fopen(devLCKfile, "r");
         if (fdserlck == NULL) {
-            log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem locking serial device, can't open lock file: %s for read.",programName,devLCKfile);
+            log_message(debug_flag | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for read.",devLCKfile);
             exit(2);
         }
         errno=0;
@@ -709,11 +734,11 @@ void lockSer(const char *szttyDevice, int debug_flag)
         fclose(fdserlck);
         fdserlck = NULL;
         if (bRead == EOF || errno_save != 0) {
-            log_message(debug_flag | DEBUG_SYSLOG, "%s: Problem locking serial device, can't read PID from lock file: %s.",programName,devLCKfile);
-            if (errno_save != 0) log_message(debug_flag, "%s: (%u) %s", programName, errno_save, strerror(errno_save));
+            log_message(debug_flag | DEBUG_SYSLOG, "Problem locking serial device, can't read PID from lock file: %s.",devLCKfile);
+            if (errno_save != 0) log_message(debug_flag, "(%u) %s", errno_save, strerror(errno_save));
             else {
                 // Self PID missing... (should never happen again)
-                log_message(debug_flag | DEBUG_SYSLOG, "%s: %s miss process self PID from lock file, amending.",programName,devLCKfile);
+                log_message(debug_flag | DEBUG_SYSLOG, "%s miss process self PID from lock file, amending.",devLCKfile);
                 AddSerLock(szttyDevice, devLCKfile, PID, debug_flag);
                 rPID=0;
                 continue;
@@ -749,10 +774,13 @@ void lockSer(const char *szttyDevice, int debug_flag)
             free(cmdFile);
             cmdFile = NULL;
         }
-        log_message(debug_flag, "rPID: %lu SubStrPos: %s command: %s %s",rPID,SubStrPos,command, (rPID == PID) ? " = me" : "");
+        if (oldrPID != rPID) {
+                log_message(debug_flag, "rPID: %lu SubStrPos: %s command: %s %s",rPID,SubStrPos,command, (rPID == PID) ? " = me" : "");
+                oldrPID = rPID;
+        }
         if (rPID != PID) {
              if (command == NULL) {          // Clear stale only if rPID process is dead (Aurora <= 1.8.8 needs a patch too)
-                 log_message(debug_flag, "%s: Clearing stale serial port lock. (%lu)", programName, rPID);
+                 log_message(debug_flag, "Clearing stale serial port lock. (%lu)", rPID);
                  ClrSerLock(rPID);
              } else if (yLockWait > 0) {
                  //log_message(debug_flag, "Sleeping 25ms");
@@ -768,7 +796,7 @@ void lockSer(const char *szttyDevice, int debug_flag)
     if (debug_flag && rPID == PID) log_message(debug_flag, "Appears we got the lock.");
     if (rPID != PID) {
         ClrSerLock(PID);
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.",programName,szttyDevice,PID,rPID);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "%Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.",szttyDevice,PID,rPID);
         log_message(DEBUG_STDERR, "Try a greater -w value (eg -w%u).", (yLockWait+2)%30);
         exit(2);
     }
@@ -803,9 +831,11 @@ int main(int argc, char* argv[])
     int count_param    = 0;
     int num_retries    = 1;
 #if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
-    uint32_t resp_timeout = 2;
+    uint32_t resp_timeout = 10; //2;
+    uint32_t byte_timeout = 0;    
 #else
-    time_t resp_timeout   = 2;
+    time_t resp_timeout = 10; //2;
+    time_t byte_timeout = 0;
 #endif
     int c;
     char *szttyDevice  = NULL;
@@ -830,7 +860,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:Ab:BcCdD:efgij:lmnopP:qr:R:s:S:tTvw:xz:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:Ab:BcCdD:efgij:lmnopP:qr:R:s:S:tTvw:W:xz:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -998,6 +1028,9 @@ int main(int argc, char* argv[])
                     return 0;
                 }
                 break;
+            case 'W':
+                settle_time = atoi(optarg);
+                break;
             case 'D':
                 command_delay = atoi(optarg);
                 break;
@@ -1044,6 +1077,34 @@ int main(int argc, char* argv[])
     modbus_t *ctx;
     if (baud_rate == 0) baud_rate = DEFAULT_RATE;
 
+/*    
+    if (resp_timeout == 0) 
+        resp_timeout = 1000000L/baud_rate*(parity == N_PARITY ? 10 : 11)*35 ;     // 10 * 3.5 bytes at baudrate/parity (us)
+    else
+*/
+    resp_timeout *= 100000;
+    
+    log_message(debug_flag, "resp_timeout=%ldus", resp_timeout);
+    
+    if (byte_timeout == 0) 
+        byte_timeout = 1000000L*(parity == N_PARITY ? 10 : 11)*15 / baud_rate;     // 1.5 bytes at baudrate/parity (us)
+        
+    log_message(debug_flag, "byte_timeout=%ldus", byte_timeout);
+    
+    if (command_delay == 0) 
+        command_delay = 1500000L*(parity == N_PARITY ? 10 : 11)*35/baud_rate;     // 1.5*3.5 bytes at baudrate/parity (us)
+    else
+        command_delay *=1000;
+        
+    log_message(debug_flag, "command_delay=%ldus", command_delay);
+        
+    if (settle_time == 0)
+        settle_time = 3000000L*(parity == N_PARITY ? 10 : 11)*35/baud_rate;        // 3*3.5 bytes at baudrate/parity (us)
+    else
+        settle_time *=1000;
+
+    log_message(debug_flag, "settle_time=%ldus", settle_time);
+    
     ctx = modbus_new_rtu(szttyDevice, baud_rate, parity, 8, stop_bits);
 
     if (ctx == NULL) {
@@ -1054,32 +1115,53 @@ int main(int argc, char* argv[])
 
 #if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
 
+/*
     uint32_t old_response_to_sec;
     uint32_t old_response_to_usec;
 
     modbus_get_response_timeout(ctx, &old_response_to_sec, &old_response_to_usec);
+*/
 
     // Considering to get those values from command line
     modbus_set_byte_timeout(ctx, -1, 0);
-    modbus_set_response_timeout(ctx, 0, 100000 * resp_timeout);
+    modbus_set_response_timeout(ctx, 0, resp_timeout);
 
 #else
 
-    struct timeval old_response_timeout;
-    struct timeval response_timeout;
+    struct timeval timeout;
+/* 
+    struct timeval old_timeout;
+    struct timeval new_timeout;
 
-    modbus_get_response_timeout(ctx, &old_response_timeout);
-    response_timeout.tv_sec = -1;
-    response_timeout.tv_usec = 0;
-    modbus_set_byte_timeout(ctx, &response_timeout);
-    response_timeout.tv_sec = 0;
-    response_timeout.tv_usec = 100000 * resp_timeout;
-    modbus_set_response_timeout(ctx, &response_timeout);
+    modbus_get_response_timeout(ctx, &old_timeout);
+    log_message(debug_flag, "Old response timeout: %ds, %dus", old_timeout.tv_sec, old_timeout.tv_usec);
+
+    modbus_get_byte_timeout(ctx, &old_timeout);
+    log_message(debug_flag, "Old byte timeout: %ds, %dus", old_timeout.tv_sec, old_timeout.tv_usec);
+*/
+    timeout.tv_sec = 0;
+    timeout.tv_usec = byte_timeout;
+    modbus_set_byte_timeout(ctx, &timeout);
+    log_message(debug_flag, "New byte timeout: %ds, %dus", timeout.tv_sec, timeout.tv_usec);
+    
+    timeout.tv_sec = 0;
+    timeout.tv_usec = resp_timeout;
+    modbus_set_response_timeout(ctx, &timeout);
+    log_message(debug_flag, "New response timeout: %ds, %dus", timeout.tv_sec, timeout.tv_usec);
+/*)
+    modbus_get_response_timeout(ctx, &new_timeout);
+    modbus_get_byte_timeout(ctx, &new_timeout);
+*/
 
 #endif
 
-    modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
-
+    //modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_LINK | MODBUS_ERROR_RECOVERY_PROTOCOL);
+    modbus_set_error_recovery(ctx, MODBUS_ERROR_RECOVERY_NONE);
+    
+    // Wait for line settle
+    log_message(debug_flag, "Sleeping %ldus for line settle...", settle_time);
+    usleep(settle_time);
+    
     if (trace_flag == 1) {
         modbus_set_debug(ctx, 1);
     }
@@ -1092,6 +1174,8 @@ int main(int argc, char* argv[])
         ClrSerLock(PID);
         exit(EXIT_FAILURE);
     }
+
+    //log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx)); // Already flushed by connect 
 
     float voltage     = 0;
     float current     = 0;
@@ -1385,6 +1469,7 @@ int main(int argc, char* argv[])
     }
 
     if (read_count == count_param) {
+        // log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
         modbus_close(ctx);
         modbus_free(ctx);
         ClrSerLock(PID);
