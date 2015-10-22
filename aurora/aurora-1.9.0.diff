@@ -20,9 +20,18 @@
  extern BOOL bRptReadPause;
  extern BOOL bSwapEndian;
  extern BOOL bUseMultiplierQ;
---- install-aurora/aurora-1.9.0/main.c	2015-09-26 20:55:46.215899208 +0200
-+++ my-aurora-1.9.0/main.c	2015-10-15 16:58:53.000000000 +0200
-@@ -80,6 +80,7 @@
+--- aurora-1.9.0/main.c	2015-09-26 20:55:46.215899208 +0200
++++ my-aurora-1.9.0/main.c	2015-10-23 00:54:05.000000000 +0200
+@@ -75,15 +75,21 @@
+ static char	VersionM[] = "1.9.0";
+ char     VersionC[7];
+ 
++// Enable checks for inter-lock problems debug
++#define CHECKFORGHOSTAPPEND     0
++#define CHECKFORCLEARLOCKRACE   0
++
+ #include <syscall.h>
+ #include <unistd.h>
  #include <sys/types.h>
  #include <sys/stat.h>
  #include <sys/time.h>
@@ -30,7 +39,30 @@
  #include <fcntl.h>
  #include <termios.h>
  #include <stdio.h>
-@@ -112,7 +113,7 @@
+ #include <stdlib.h>
++#include <stdarg.h>
+ #include <syslog.h>
+ #include <unistd.h>
+ #include <math.h>
+@@ -97,7 +103,16 @@
+ #include "include/comm.h"
+ #include "include/names.h"
+ 
+-BOOL bVerbose = FALSE;
++#if CHECKFORCLEARLOCKRACE
++#include <glob.h>
++#endif
++
++#define DEBUG_STDERR 1
++#define DEBUG_SYSLOG 2
++
++BOOL bVerbose = 0;              // FALSE;
++int debug_mask = 0;             /* Default, no debug log */
++//int debug_mask = DEBUG_SYSLOG;  /* Let only Syslog Pass */
+ BOOL bColumns = FALSE;		/* Output data in columns */
+ int yGetDSP = -1;		/* Measure request to the DSP */
+ BOOL bGetDSPExtended = FALSE;	/* Measure request to the DSP more parameters */
+@@ -112,12 +127,16 @@
  BOOL bCalcGridPwr = FALSE;
  BOOL bXonXoff = FALSE;
  BOOL bRTSCTS = FALSE;
@@ -39,7 +71,16 @@
  BOOL bRptReadPause = FALSE;
  BOOL bSwapEndian = FALSE;
  BOOL bUseMultiplierQ = FALSE;
-@@ -169,9 +170,10 @@
+ float yMultiplierK = 1.0;
+ int yTimeout = 0;		/* read timeout value in us */
++
++#define CMDLINESIZE 128         /* should be enough for debug */
++char cmdline[CMDLINESIZE]="";    
++
+ long unsigned int PID;
+ int yMaxAttempts = 1;
+ int yReadPause = 0;
+@@ -169,9 +188,10 @@
  /* local functions */
  static int GetParms(int argc, char *argv[]);
  static void *getMemPtr(size_t mSize);
@@ -52,47 +93,17 @@
  
  /*--------------------------------------------------------------------------
      getCurTime
-@@ -191,69 +193,38 @@
+@@ -191,66 +211,90 @@
  }
  
  /*--------------------------------------------------------------------------
 -    getPIDcmdLen
------------------------------------------------------------------------------*/
--int getPIDcmdLen(long unsigned int PID)
--{
--    FILE *fdserlck = NULL;
--    int fLen = 0;
--    char sPID[10];
--    char *cmdFile = NULL;
--
--    sPID[0] = '\0';
--    sprintf(sPID,"%lu",PID);
--    cmdFile = getMemPtr(strlen(sPID)+14+1);
--    cmdFile[0] = '\0';
--    sprintf(cmdFile,"/proc/%lu/cmdline",PID);
--    cmdFile[strlen(cmdFile)] = '\0';
--    fdserlck = fopen(cmdFile, "r");
--    if (fdserlck != NULL) {
--        while (fgetc(fdserlck) != EOF) fLen++;
--        fclose(fdserlck);
--        fdserlck = NULL;
--    }
--    if (cmdFile != NULL) {
--        free(cmdFile);
--        cmdFile = NULL;
--    }
--    return fLen;
--}
--
--
--/*--------------------------------------------------------------------------
-     getPIDcmd
++    getPIDcmd
  ----------------------------------------------------------------------------*/
--void getPIDcmd(long unsigned int PID, char* COMMAND)
+-int getPIDcmdLen(long unsigned int PID)
 +void *getPIDcmd(long unsigned int PID)
  {
 -    FILE *fdserlck = NULL;
--    int bRead = 0;
 -    int fLen = 0;
 -    char sPID[10];
 +    FILE *fdcmd = NULL;
@@ -100,7 +111,7 @@
 +    size_t bufLen = 64, 
 +           chunk = 32, 
 +           cmdLen = 0;
-+    char c;
++    int c;
 +    char sPID[16];
      char *cmdFile = NULL;
  
@@ -109,6 +120,65 @@
      cmdFile = getMemPtr(strlen(sPID)+14+1);
 -    cmdFile[0] = '\0';
      sprintf(cmdFile,"/proc/%lu/cmdline",PID);
+-    cmdFile[strlen(cmdFile)] = '\0';
+-    fdserlck = fopen(cmdFile, "r");
+-    if (fdserlck != NULL) {
+-        while (fgetc(fdserlck) != EOF) fLen++;
+-        fclose(fdserlck);
+-        fdserlck = NULL;
++    
++    fdcmd = fopen(cmdFile, "r");
++    if (fdcmd != NULL) {
++        COMMAND = getMemPtr(bufLen);
++        errno=0;
++        for (c=fgetc(fdcmd); c != EOF ; c=fgetc(fdcmd)) {
++            COMMAND[cmdLen++] = c;
++            if (c=='\0') break;
++            if (cmdLen>=bufLen) {
++                COMMAND = reallocMemPtr(COMMAND, bufLen+chunk);
++                bufLen += chunk;
+     }
+-    if (cmdFile != NULL) {
+-        free(cmdFile);
+-        cmdFile = NULL;
+     }
+-    return fLen;
++        COMMAND[cmdLen] = '\0';
++        fclose(fdcmd);
+ }
++    free(cmdFile);
+ 
++    return COMMAND;
++}
+ 
+ /*--------------------------------------------------------------------------
+-    getPIDcmd
++    getCmdLine
+ ----------------------------------------------------------------------------*/
+-void getPIDcmd(long unsigned int PID, char* COMMAND)
++void getCmdLine()
+ {
+-    FILE *fdserlck = NULL;
+-    int bRead = 0;
+-    int fLen = 0;
+-    char sPID[10];
+-    char *cmdFile = NULL;
++    int fd = open("/proc/self/cmdline", O_RDONLY);
++    int nbytesread = read(fd, cmdline, CMDLINESIZE);
++    char *p;
++    if (nbytesread>0) {
++        for (p=cmdline; p < cmdline+nbytesread; p++) if (*p=='\0') *p=' '; 
++        cmdline[nbytesread-1]='\0';
++    } else
++        cmdline[0]='\0';
++    close(fd);
++}
+ 
+-    sPID[0] = '\0';
+-    sprintf(sPID,"%lu",PID);
+-    cmdFile = getMemPtr(strlen(sPID)+14+1);
+-    cmdFile[0] = '\0';
+-    sprintf(cmdFile,"/proc/%lu/cmdline",PID);
 -    cmdFile[strlen(cmdFile)] = '\0';
 -    fLen = getPIDcmdLen(PID);
 -    if (fLen > 0) {
@@ -119,40 +189,67 @@
 -            if (bRead) COMMAND[strlen(COMMAND)] = '\0';
 -            fclose(fdserlck);
 -            fdserlck = NULL;
++/*--------------------------------------------------------------------------
++    log_message
++----------------------------------------------------------------------------*/
++void log_message(const int log, const char* format, ...) {
++    va_list args;
++    char buffer[1024];
++    static int bCmdlineSyslogged = 0;
 +    
-+    fdcmd = fopen(cmdFile, "r");
-+    if (fdcmd != NULL) {
-+        COMMAND = getMemPtr(bufLen);
-+        for (c=fgetc(fdcmd); c != EOF; c=fgetc(fdcmd)) {
-+            COMMAND[cmdLen++] = c;
-+            if (c==0) break;
-+            if (cmdLen>=bufLen)
-+                COMMAND = reallocMemPtr(COMMAND, bufLen+chunk);
++    if (log) {
++       va_start(args, format);
++       vsnprintf(buffer, 1024, format, args);
++       va_end(args);
          }
-+        fclose(fdcmd);
++    
++    if (log & debug_mask & DEBUG_STDERR) {
++       fprintf(stderr, "%s: %s(%lu) ", getCurTime(), ProgramName, PID);
++       fprintf(stderr, buffer);
++       fprintf(stderr, "\n");
      }
 -    if (cmdFile != NULL) {
-         free(cmdFile);
+-        free(cmdFile);
 -        cmdFile = NULL;
--    }
--}
++    
++    if (log & debug_mask & DEBUG_SYSLOG) {
++        openlog("aurora", LOG_PID|LOG_CONS, LOG_USER);
++        if (!bCmdlineSyslogged) { 
++            char versionbuffer[strlen(ProgramName)+strlen(VersionM)+3];
++            snprintf(versionbuffer, strlen(ProgramName)+strlen(VersionM)+3, "%s v%s", ProgramName, VersionM);
++            syslog(LOG_INFO, versionbuffer);
++            syslog(LOG_INFO, cmdline);
++            bCmdlineSyslogged++;
++        }
++        syslog(LOG_INFO, buffer);
++        closelog();
+     }
+ }
  
-+    return COMMAND;
-+}
- 
- /*--------------------------------------------------------------------------
-     main
-@@ -269,7 +240,8 @@
+@@ -269,11 +313,11 @@
      char RunTime[18] = " ";
      char EndTime[18] = " ";
      long unsigned int LckPID;
 -    int bRead, bWrite, lckCNT;
 +    struct timeval tLockStart, tLockNow;
-+    int bRead, lckCNT;
++    int bRead;
      int errno_save = 0;
      int fLen = 0;
      int curChar = 0;
-@@ -379,7 +351,7 @@
+-    BOOL lckCNTbeg = TRUE;
+     char *COMMAND = NULL;
+     char *LckCOMMAND = NULL;
+     char *LckPIDcommand = NULL;
+@@ -291,7 +335,7 @@
+ 
+     errno = 0;
+     PID = getpid();
+-
++    getCmdLine();
+ 
+     /* Get command line parms */
+     if ((!GetParms(argc, argv) && !bVersion) || bHelp) {
+@@ -379,7 +423,7 @@
          printf(" -X, --rts-cts                  Enable RTS/CTS on the serial port.\n");
  	printf(" -x, --xon-xoff                 Enable XON/XOFF on the serial port.\n");
          printf(" -Y <num>, --retries=<num>      Retry failed communications with inverter up to <num> times (1-100)\n");
@@ -161,7 +258,7 @@
          printf("               *** Required Parameters ***\n");
          printf(" -a <num>, --address=<num>      Inverter address. 1-31 on older inverters, 1-63 on newer inverters.\n");
          printf(" Device                         Serial Device.\n");
-@@ -413,31 +385,18 @@
+@@ -413,35 +457,21 @@
          exit(0);
      }
  
@@ -189,65 +286,121 @@
 +    AddSerLock(PID, COMMAND);
  
      LckPID = 0;
-     lckCNT = -1;
-     lckCNTbeg = TRUE;
+-    lckCNT = -1;
+-    lckCNTbeg = TRUE;
 -    while(LckPID != PID && lckCNT++ < yLockWait) {
-+
+-        if (bVerbose && lckCNT == 0 && lckCNTbeg) {
+-            fprintf(stderr, "Checking for lock\n");
+-            lckCNTbeg = FALSE;
+-        }
++    long unsigned int oldLckPID = 0;
++    int badStatusRetries = 0;
++    int const badStatusRetriesMax = 2;
++    long unsigned int clrStaleTargetPID = 0;    
++    
 +    gettimeofday(&tLockStart, NULL);
 +    tLockNow=tLockStart;
 +    
++    if (bVerbose) fprintf(stderr, "Checking for lock\n");
 +    while(LckPID != PID &&
 +          tLockNow.tv_sec*1000000L+tLockNow.tv_usec <= tLockStart.tv_sec*1000000L + tLockStart.tv_usec + yLockWait*1000000L) {
-         if (bVerbose && lckCNT == 0 && lckCNTbeg) {
-             fprintf(stderr, "Checking for lock\n");
-             lckCNTbeg = FALSE;
-@@ -452,12 +411,13 @@
+         fdserlck = fopen(devLCKfile, "r");
+         if (fdserlck == NULL) {
+             if (bVerbose) fprintf(stderr, "\n");
+@@ -452,30 +482,49 @@
          fLen = 0;
          while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n' && curChar != ' ') fLen++;
          fLen = 0;
 -        while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n') fLen++;
-+        if (curChar != '\n') while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n') fLen++;
++        if (curChar == ' ') while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n') fLen++;
 +        
          rewind(fdserlck);
          LckCOMMAND = getMemPtr(fLen+1);
          LckCOMMAND[0] = '\0';
  
 -        bRead = fscanf(fdserlck, "%lu %s", &LckPID, LckCOMMAND);
-+        bRead = fscanf(fdserlck, "%lu[ ]%s\n", &LckPID, LckCOMMAND);
++        errno = 0;  
++        bRead = fscanf(fdserlck, "%lu%*[ ]%[^\n]\n", &LckPID, LckCOMMAND);
          errno_save = errno;
          fclose(fdserlck);
-         if (bVerbose) fprintf(stderr, "\nChecking process %lu (%s) for lock\n", LckPID, LckCOMMAND);
-@@ -468,9 +428,7 @@
+-        if (bVerbose) fprintf(stderr, "\nChecking process %lu (%s) for lock\n", LckPID, LckCOMMAND);
+-        fdserlck = NULL;
++        if (LckPID != oldLckPID) {
++            log_message(bVerbose | (bRead==EOF ? DEBUG_SYSLOG : 0), "errno=%i, bRead=%i PID=%lu LckPID=%lu", errno_save, bRead, PID, LckPID);
++            log_message(bVerbose, "Checking process %lu (%s) for lock", LckPID, LckCOMMAND);
++            oldLckPID = LckPID;
++        }    
+         if (bRead == EOF || errno_save != 0) {
+-            if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
++            log_message(bVerbose | DEBUG_SYSLOG, "Problem locking serial device, can't read PID from lock file: %s.",devLCKfile);
++            if (errno_save != 0) {
++                // Real error 
++                log_message(bVerbose | DEBUG_SYSLOG, "(%u) %s", errno_save, strerror(errno_save));
++                free(LckCOMMAND); free(LckPIDcommand); free(COMMAND);
              exit(2);
++            } else {
++                if (badStatusRetries < badStatusRetriesMax) {
++                    badStatusRetries++;
++                    log_message(bVerbose, "%s miss process self PID from lock file?",devLCKfile);
++                } else if (badStatusRetries >= badStatusRetriesMax) {
++                    // Self PID missing... (Should never happen)
++                    log_message(bVerbose | DEBUG_SYSLOG, "%s miss process self PID from lock file, amending.",devLCKfile);
++                    AddSerLock(PID, COMMAND);
++                    //LckPID=0;
++                    badStatusRetries = 0;
++                }
          }
++        } else { //fread OK
  
 -        fLen = getPIDcmdLen(LckPID);
 -        LckPIDcommand = getMemPtr(fLen+1);
 -        getPIDcmd(LckPID,LckPIDcommand);
-+        LckPIDcommand = getPIDcmd(LckPID);
++          LckPIDcommand = getPIDcmd(LckPID);
  
-         if (bVerbose) {
+-        if (bVerbose) {
++          if (bVerbose && LckPID != oldLckPID) {
              fprintf (stderr, "PID: %lu COMMAND: \"%s\" LckPID: %lu LckCOMMAND: \"%s\" LckPIDcommand \"%s\"", PID, COMMAND, LckPID, LckCOMMAND, LckPIDcommand);
-@@ -483,13 +441,15 @@
+             if (LckPID == PID) fprintf (stderr, " = me");
+             fprintf (stderr, "\n");
++              oldLckPID = LckPID;              
+         }
+ 
+ //      PID           - this process
+@@ -483,14 +532,26 @@
  //	COMMAND       - this process
  //	LckCOMMAND    - process command from lock file
  //	LckPIDcommand - process command of process using PID from lock file
 -        if ((PID != LckPID && LckPIDcommand == NULL) || strcmp(LckCOMMAND,LckPIDcommand) != 0 || strcmp(LckPIDcommand,"") == 0) {
-+        if ((PID != LckPID && LckPIDcommand == NULL) || (LckCOMMAND[0]!='\0' && strcmp(LckPIDcommand,LckCOMMAND) != 0) || strcmp(LckPIDcommand,"") == 0) {
++          if ((PID != LckPID && LckPIDcommand == NULL) || (LckCOMMAND[0]!='\0' && strcmp(LckPIDcommand,LckCOMMAND) != 0) || strcmp(LckPIDcommand,"") == 0) {
              if (bVerbose) fprintf (stderr, "\n");
-             fprintf(stderr, "%s: %s: Clearing stale serial port lock. (%lu)\n",getCurTime(),ProgramName,LckPID);
-             ClrSerLock(LckPID);
-             lckCNT = -1;
+-            fprintf(stderr, "%s: %s: Clearing stale serial port lock. (%lu)\n",getCurTime(),ProgramName,LckPID);
+-            ClrSerLock(LckPID);
+-            lckCNT = -1;
 -        } else if (yLockWait > 0)
 -            sleep(1);
-+        } else if (yLockWait > 0) {
-+            if (bVerbose) fprintf(stderr, "Sleeping 25ms");
++              if (badStatusRetries < badStatusRetriesMax) {
++                  badStatusRetries++;
++                  clrStaleTargetPID = LckPID;
++                  log_message(bVerbose, "Stale pid lock? PID=%lu, LckPID=%lu, LckCOMMAND='%s', LckPIDCommand='%s'", PID, LckPID, LckCOMMAND, LckPIDcommand);
++              } else if (LckPID == clrStaleTargetPID && badStatusRetries >= badStatusRetriesMax) {
++                  log_message(bVerbose | DEBUG_SYSLOG, "Clearing stale serial port lock. (%lu)", LckPID);                  ClrSerLock(LckPID);
++                  badStatusRetries = 0;
++                  clrStaleTargetPID = 0;
++              }
++          } 
++        }
++
++        if (yLockWait > 0) {
++            //if (bVerbose) fprintf(stderr, "Sleeping 25ms");
 +            usleep(25000);
 +        }
  
++        // Cleanup and loop
          if (LckCOMMAND != NULL) {
              free(LckCOMMAND);
-@@ -499,6 +459,7 @@
+             LckCOMMAND = NULL;
+@@ -499,6 +560,7 @@
              free(LckPIDcommand);
              LckPIDcommand = NULL;
          }
@@ -255,8 +408,13 @@
      }
      free(COMMAND);
      if (bVerbose && LckPID == PID) fprintf(stderr, "Appears we got the lock.\n");
-@@ -730,7 +691,7 @@
+@@ -728,9 +790,12 @@
+ 
+     RestorePort(fdser);
      ClrSerLock(PID);
++    free(szttyDevice);
++    free(devLCKfile);
++    free(devLCKfileNew);
  
      if (rc < 0) {
 -        if (bRptReties) fprintf(stderr, "\n");
@@ -264,7 +422,7 @@
          if (bVerbose) fprintf(stderr, "\n");
          fprintf(stderr, "%s: %s: ERROR: Received bad return code (%i %i",getCurTime(),ProgramName,rc,invOp);
          if (invFunc > 0)
-@@ -755,31 +716,31 @@
+@@ -755,31 +820,31 @@
  ----------------------------------------------------------------------------*/
  int RestorePort(int fdser) {
  
@@ -307,7 +465,7 @@
          return 2;
      }
  
-@@ -794,6 +755,53 @@
+@@ -794,6 +859,52 @@
      return 0;
  }
  
@@ -330,7 +488,6 @@
 +      }
 +        if (bVerbose) fprintf(stderr, "Acquiring shared lock on %s...\n",devLCKfile);
 +        errno = 0;
-+        
 +        if (flock(fileno(fdserlck), LOCK_SH | LOCK_NB) == 0 ) break;      // Lock Acquired 
 +        errno_save=errno;
 +        
@@ -349,7 +506,7 @@
 +    bWrite = fprintf(fdserlck, "%lu %s\n", PID, COMMAND);
 +    errno_save = errno;
 +    fclose(fdserlck);                   // Will release lock
-+    fdserlck = NULL;
++    //fdserlck = NULL;
 +    if (bWrite < 0 || errno_save != 0) {
 +        if (bVerbose) fprintf(stderr, "\n");
 +        fprintf(stderr, "%s: %s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror(errno_save));
@@ -361,7 +518,7 @@
  
  /*--------------------------------------------------------------------------
      ClrSerLock
-@@ -818,7 +826,11 @@
+@@ -818,7 +929,31 @@
          fprintf(stderr, "\n%s: %s: Problem opening serial device lock file to clear LckPID %lu: %s for read.\n\n",getCurTime(),ProgramName,LckPID,devLCKfile);
          return(0);
      }
@@ -369,27 +526,56 @@
 +    if (bVerbose) fprintf(stderr, "Acquiring exclusive lock on %s...\n",devLCKfile);
 +    flock(fileno(fdserlck), LOCK_EX);   // Will wait to acquire lock then continue
 +    if (bVerbose) fprintf(stderr, "Exclusive lock on %s acquired (%d)...\n",devLCKfile, errno);
++
++#if CHECKFORCLEARLOCKRACE
 +    
++    // Check for potential conflicts
++    glob_t globbuf;
++    int iGlob, fGlob = TRUE;
++    
++    if (bVerbose) fprintf(stderr, "GlobCheck - Check to avoid simultaneous PID clearing\n");
++    for (iGlob=5; iGlob>0 && fGlob; iGlob--) {
++      fGlob = FALSE;      
++      if (glob("/var/lock/LCK..ttyUSB0.*", GLOB_NOSORT, NULL, &globbuf) != GLOB_NOMATCH) {
++          if (bVerbose) fprintf(stderr, "GlobCheck (%u), some other process is clearing lock too!!! (%s)",iGlob, globbuf.gl_pathv[0]);
++          fGlob=TRUE;
++          if (bVerbose) fprintf(stderr, "Sleeping 500ms");
++          usleep(500000);
++      }
++      globfree(&globbuf);
++    }
++    
++#endif
++
 +    fdserlcknew = fopen(devLCKfileNew, "a");
      if (fdserlcknew == NULL) {
          if (bVerbose) fprintf(stderr, "\n");
          fprintf(stderr, "\n%s: %s: Problem opening new serial device lock file to clear LckPID %lu: %s for write.\n\n",getCurTime(),ProgramName,LckPID,devLCKfileNew);
-@@ -826,6 +838,7 @@
+@@ -826,38 +961,88 @@
          return(0);
      }
  
-+    // Find cmdLen max len in file (?)
++    // Find cmdLen max len in file
      curChar = 0;
      while (curChar != EOF) {
          fLen = 0;
-@@ -838,28 +851,41 @@
+         while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n' && curChar != ' ') fLen++;
++        if (curChar == ' ') {
+         fLen = 0;
+         while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n') fLen++;
+         if (fLen > cmdLen) cmdLen = fLen;
+     }
++    }
+     rewind(fdserlck);
  
      COMMAND = getMemPtr(cmdLen+1);
-     COMMAND[0] = '\0';
+-    COMMAND[0] = '\0';
 -    bRead = fscanf(fdserlck, "%lu %s", &PID, COMMAND);
-+    bRead = fscanf(fdserlck, "%lu[ ]%s\n", &PID, COMMAND);
++    COMMAND[0] = '\0'; PID = 0;
++    errno = 0;
++    bRead = fscanf(fdserlck, "%lu%*[ ]%[^\n]\n", &PID, COMMAND);
 +    errno_save = errno;
-+    if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu LckPID=%lu\n", ProgramName, errno_save, bRead, PID, LckPID);
++    if (bVerbose) fprintf(stderr, "errno=%i, bRead=%i LckPID=%lu PID=%lu COMMAND='%s'\n", errno_save, bRead, LckPID, PID, COMMAND);
  
 -    while (bRead != EOF) {
 +    while (bRead != EOF && bRead>0) {
@@ -410,36 +596,78 @@
              }
          }
 -        bRead = fscanf(fdserlck, "%lu %s", &PID, COMMAND);
-+        COMMAND[0] = '\0';
-+        bRead = fscanf(fdserlck, "%lu[ ]%s\n", &PID, COMMAND);
-+        if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu LckPID=%lu\n", ProgramName, errno_save, bRead, PID, LckPID);
-     }
--    fclose(fdserlck);
--    fclose(fdserlcknew);
--    free(COMMAND);
++        errno=0; PID=0; COMMAND[0] = '\0';
++        bRead = fscanf(fdserlck, "%lu%*[ ]%[^\n]\n", &PID, COMMAND);
++        if (bVerbose) fprintf(stderr, "errno=%i, bRead=%i LckPID=%lu PID=%lu COMMAND='%s'\n", errno_save, bRead, LckPID, PID, COMMAND);
++    }
++
 +    fflush(fdserlcknew);
 +
-     errno = 0;
-     if (rename(devLCKfileNew,devLCKfile)) fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno));
++    errno = 0;
++    if (rename(devLCKfileNew,devLCKfile)) fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno));
++
++#if CHECKFORGHOSTAPPEND
++
++    log_message(bVerbose, "Clearing Serial Port Lock amost done...");
++
++    log_message(bVerbose, "Sleeping 10ms");
++    usleep(10000);
++
++    // Check for latest appends (ghost appends)
++    int iGhost=10;
++    bRead = fscanf(fdserlck, "%lu%*[ ]%*[^\n]\n", &PID);
++    while (iGhost > 0) {
++        if (bRead > 0) {
++            log_message(bVerbose | DEBUG_SYSLOG, "Found ghost append (%d): %s. %lu",iGhost,devLCKfile,PID);
++            errno = 0;            
++            bWrite = fprintf(fdserlcknew, "%lu\n", PID);
++            errno_save = errno;
++            if (bWrite < 0 || errno_save != 0) {
++                log_message(bVerbose | DEBUG_SYSLOG, "Problem clearing serial device lock, can't write lock file: %s. %s",devLCKfile,strerror (errno_save));
++                log_message(bVerbose | DEBUG_SYSLOG, "(%u) %s", errno_save, strerror(errno_save));
++                fclose(fdserlcknew);
++                return(0);
++            }
+     }
++        //log_message(bVerbose, "Sleeping 10ms");
++        usleep(10000);
++        iGhost--; PID=0;
++        bRead = fscanf(fdserlck, "%lu%*[ ]%*[^\n]\n", &PID);
++    }
++    
++#endif
++
+     fclose(fdserlck);
+     fclose(fdserlcknew);
+     free(COMMAND);
+-    errno = 0;
+-    if (rename(devLCKfileNew,devLCKfile)) fprintf(stderr, "\n%s: %s: Problem clearing serial device lock, can't update lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno));
++
      if (bVerbose) fprintf(stderr, " done.\n");
  
-+    fclose(fdserlck);
-+    fclose(fdserlcknew);
-+    free(COMMAND);
-+
      return -1;
- }
- 
-@@ -1166,7 +1192,7 @@
+@@ -973,7 +1158,10 @@
+                 yAddress = atoi(optarg);
+                 break;
+             case 'A': bGetLastAlarms     = TRUE; break;
+-            case 'b': bVerbose     = TRUE; break;
++            case 'b': 
++                bVerbose = 1;
++                debug_mask = debug_mask | DEBUG_STDERR;  
++                break;
+             case 'C':
+                 SubStrPos = strstr(optarg, ":");
+                 if (SubStrPos == NULL)
+@@ -1166,7 +1354,7 @@
                      return 0;
                  }
                  break;
 -            case 'y': bRptReties   = TRUE; break;
-+            case 'y': bRptRetries   = TRUE; break;
++            case 'y': bRptRetries  = TRUE; break;
              case 'V': bVersion     = TRUE; break;
              case 'v': bGetVer      = TRUE; break;
  
-@@ -1227,19 +1253,30 @@
+@@ -1227,19 +1415,30 @@
  void *getMemPtr(size_t mSize)
  {
      void *ptr;
@@ -476,3 +704,14 @@
  
  /*--------------------------------------------------------------------------
      Version
+--- aurora-1.9.0/Makefile	2013-11-17 01:54:30.307376636 +0100
++++ my-aurora-1.9.0/Makefile	2015-10-19 15:22:18.874211883 +0200
+@@ -6,7 +6,7 @@
+ #TUNE = native
+ 
+ CC = gcc
+-CFLAGS = -O2 -Wall -I/usr/include -I./include
++CFLAGS = -O2 -g -Wall -I/usr/include -I./include
+ OFILES = main.o comm.o
+ 
+ INSTALLSITEMAN1DIR = ${mandir}/man1

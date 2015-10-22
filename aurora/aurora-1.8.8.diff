@@ -40,7 +40,7 @@
  extern int RestorePort(int fdser);
  
 --- aurora-1.8.8/main.c	2015-01-27 02:37:17.000000000 +0100
-+++ my-aurora-1.8.8/main.c	2015-10-16 18:17:02.000000000 +0200
++++ my-aurora-1.8.8/main.c	2015-10-19 11:10:11.000000000 +0200
 @@ -79,6 +79,7 @@
  #include <sys/types.h>
  #include <sys/stat.h>
@@ -118,7 +118,7 @@
          }
 -        bRead = fscanf(fdserlck, "%lu", &rPID);
 +        errno=0;
-+        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++        bRead = fscanf(fdserlck, "%lu%*[^\n]\n", &rPID);
          errno_save = errno;
          fclose(fdserlck);
 -        if (bVerbose) fprintf(stderr, "\nChecking process %lu for lock\n",rPID);
@@ -315,7 +315,7 @@
 -    bRead = fscanf(fdserlck, "%lu", &rPID);
 -    while (bRead != EOF) {
 +    errno = 0;
-+    bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++    bRead = fscanf(fdserlck, "%lu%*[^\n]\n", &rPID);
 +    errno_save = errno;
 +    if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu\n", ProgramName, errno_save, bRead, PID, rPID);
 +    
@@ -332,7 +332,7 @@
 +            }
 +        }
 +        errno=0; rPID=0;
-+        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++        bRead = fscanf(fdserlck, "%lu%*[^\n]\n", &rPID);
 +        errno_save = errno;
 +        if (bVerbose) fprintf(stderr, "%s: errno=%i, bRead=%i PID=%lu rPID=%lu\n", ProgramName, errno_save, bRead, PID, rPID);
 +    }
@@ -351,7 +351,7 @@
 +
 +    // Check for latest appends (ghost appends)
 +    int iGhost=10;
-+    bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++    bRead = fscanf(fdserlck, "%lu%*[^\n]\n", &rPID);
 +    while (iGhost > 0) {
 +        if (bRead > 0 ) {
 +            if (bVerbose) fprintf(stderr, "%s: Found ghost append: %s. %lu\n",ProgramName,devLCKfile,rPID);
@@ -368,7 +368,7 @@
 +        fprintf(stderr, " Sleeping 10ms\n");
 +        usleep(10000);
 +        iGhost--; rPID=0;
-+        bRead = fscanf(fdserlck, "%lu[^\n]\n", &rPID);
++        bRead = fscanf(fdserlck, "%lu%*[^\n]\n", &rPID);
      }
 +
 +#endif
