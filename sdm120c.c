@@ -25,8 +25,8 @@ extern "C" {
  */
 
 // Enable checks for inter-lock problems debug
-#define CHECKFORGHOSTAPPEND     0
-#define CHECKFORCLEARLOCKRACE   0
+#define CHECKFORGHOSTAPPEND     1
+#define CHECKFORCLEARLOCKRACE   1
 
 #include <sys/types.h>
 #include <sys/file.h>
@@ -96,13 +96,13 @@ extern "C" {
 #define DEBUG_STDERR 1
 #define DEBUG_SYSLOG 2
 
-int debug_mask     = DEBUG_SYSLOG; // Default, let only Syslog Pass
+int debug_mask     = DEBUG_STDERR | DEBUG_SYSLOG; // Default, let pass all
 int debug_flag     = 0;
 int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.3";
+const char *version     = "1.3.4";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -125,9 +125,17 @@ void usage(char* program) {
     printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
     printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
     printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device\n\n", program);
-    printf("where\n");
+    printf("Required:\n");
+    printf("\tdevice\t\tSerial device (i.e. /dev/ttyUSB0)\n");
+    printf("Connection parameters:\n");
     printf("\t-a address \tMeter number (1-247). Default: 1\n");
-    printf("\t-s new_address \tSet new meter number (1-247)\n");
+    printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
+    printf("\t\t\tDefault: 2400\n");
+    printf("\t-P parity \tUse parity (E, N, O)\n");
+    printf("\t-S bit \t\tUse stop bits (1, 2). Default: 1\n");
+    printf("\t-1 \t\tModel: SDM120C (default)\n");
+    printf("\t-2 \t\tModel: SDM220\n");
+    printf("Reading parameters (no parameter = retrieves all values):\n");
     printf("\t-p \t\tGet power (W)\n");
     printf("\t-v \t\tGet voltage (V)\n");
     printf("\t-c \t\tGet current (A)\n");
@@ -143,17 +151,19 @@ void usage(char* program) {
     printf("\t-B \t\tGet exported reactive energy (VARh)\n");
     printf("\t-C \t\tGet total reactive energy (VARh)\n");
     printf("\t-T \t\tGet Time for rotating display values (0=no rotation)\n");
-    printf("\t-d debug_level\tDebug (0=disable, 1=debug, 2=errors to syslog, 3=both)\n");
-    printf("\t\t\tDefault: Errors to syslog\n");
-    printf("\t-x \t\tTrace (libmodbus debug on)\n");
-    printf("\t-b baud_rate \tUse baud_rate serial port speed (1200, 2400, 4800, 9600)\n");
-    printf("\t\t\tDefault: 2400\n");
-    printf("\t-P parity \tUse parity (E, N, O)\n");
-    printf("\t-S bit \t\tUse stop bits (1, 2). Default: 1\n");
-    printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
-    printf("\t-R new_time \tChange rotation time for displaying values (0-30s) (0=no rotation)\n");
     printf("\t-m \t\tOutput values in IEC 62056 format ID(VALUE*UNIT)\n");
     printf("\t-q \t\tOutput values in compact mode\n");
+    printf("Writing new settings parameters:\n");
+    printf("\t-s new_address \tSet new meter number (1-247)\n");
+    printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
+    printf("\t-N parity \tSet parity and stop bits (0-3)\n");
+    printf("\t\t\t0: N1, 1: E1, 2: O1, 3:N2\n");
+    printf("\t-R new_time  \tSet rotation time for displaying values (0=no rotation)\n");
+    printf("\t\t\tSDM120: (0-30s)\n");
+    printf("\t\t\tSDM120: (m-m-s-m) Demand interval, Slide time, Scroll time, Backlight time\n"); 
+    printf("\t-M new_mmode \tSet total energy measurement mode (1-3)\n");
+    printf("\t\t\t1: Total=Import, 2: Total=Import+Export, 3: Total=Import-Export\n");
+    printf("Fine tuning & debug parameters:\n");
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
     printf("\t\t\twith error. Default: 1 (no retry)\n");
     printf("\t-j 1/10 secs\tResponse timeout. Default: 2=0.2s\n");
@@ -161,10 +171,9 @@ void usage(char* program) {
     printf("\t-w seconds\tTime to wait to lock serial port (1-30s). Default: 0s\n");
     printf("\t-W 1/1000 secs\tTime to wait for 485 line to settle. Default: 0ms\n");
     printf("\t-y 1/1000 secs\tSet timeout between every bytes (1-500). Default: disabled\n");
-    printf("\t-1 \t\tModel: SDM120C (default)\n");
-    printf("\t-2 \t\tModel: SDM220\n");
-    printf("\tdevice\t\tSerial device, i.e. /dev/ttyUSB0\n\n");
-    printf("Serial device is required. When no parameter is passed, retrieves all values\n");
+    printf("\t-d debug_level\tDebug (0=disable, 1=debug, 2=errors to syslog, 3=both)\n");
+    printf("\t\t\tDefault: Fatal errors to syslog + fatal errors to stderr\n");
+    printf("\t-x \t\tTrace (libmodbus debug on)\n");
 }
 
 /*--------------------------------------------------------------------------
@@ -390,7 +399,7 @@ int ClrSerLock(long unsigned int LckPID) {
 
 #if CHECKFORGHOSTAPPEND
 
-    log_message(debug_flag, "Clearing Serial Port Lock amost done...");
+    log_message(debug_flag, "Clearing Serial Port Lock almost done...");
 
     log_message(debug_flag, "Sleeping 10ms");
     usleep(10000);
@@ -691,6 +700,28 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
 
 }
 
+void changeConfigHex(modbus_t *ctx, int address, int new_value, int restart)
+{
+    uint16_t tab_reg[1];
+    tab_reg[0] = new_value;
+
+    if (command_delay) {
+      log_message(debug_flag, "Sleeping command delay: %ldus", command_delay);
+      usleep(command_delay);
+    }
+
+    int n = modbus_write_registers(ctx, address, 1, tab_reg);
+    if (n != -1) {
+        printf("New value %d for address 0x%X\n", new_value, address);
+        if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
+    } else {
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        if (errno == EMBXILFUN) // Illegal function
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
+        exit_error(ctx);
+    }
+}
+
 void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, int nb)
 {
     uint16_t tab_reg[nb * sizeof(uint16_t)];
@@ -713,6 +744,8 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, i
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
         log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        if (errno == EMBXILFUN) // Illegal function
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
         exit_error(ctx);
     }
 }
@@ -734,6 +767,8 @@ void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
         log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        if (errno == EMBXILFUN) // Illegal function
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
         exit_error(ctx);
     }
 }
@@ -956,10 +991,13 @@ int main(int argc, char* argv[])
     int rimport_flag   = 0;
     int rtotal_flag    = 0;
     int new_baud_rate  = 0;
+    int new_parity_stop= -1;
     int compact_flag   = 0;
     int time_disp_flag = 0;
     int rotation_time_flag = 0;
     int rotation_time  = 0; 
+    int measurement_mode_flag = 0;
+    int measurement_mode = 0; 
     int count_param    = 0;
     int num_retries    = 1;
 #if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
@@ -997,7 +1035,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:Ab:BcCd:D:efgij:lmnopP:qr:R:s:S:tTvw:W:xy:z:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:Ab:BcCd:D:efgij:lmM:nN:opP:qr:R:s:S:tTvw:W:xy:z:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -1073,7 +1111,7 @@ int main(int argc, char* argv[])
                         debug_mask = atoi(optarg);
                         break;
                     default:
-                         fprintf (stderr, "%s: Debug value must be one of '',0,1,2,3.\n", programName);
+                         fprintf (stderr, "%s: Debug value must be one of 0,1,2,3.\n", programName);
                          exit(EXIT_FAILURE);
                 }
                 break;
@@ -1132,6 +1170,13 @@ int main(int argc, char* argv[])
                         exit(EXIT_FAILURE);
                 }
                 break;
+            case 'N':
+                new_parity_stop = atoi(optarg);
+                if (!(0 <= new_parity_stop && new_parity_stop <= 3)) {
+                    fprintf (stderr, "%s: New parity/stop (%d) out of range, 0-3.\n", programName, new_parity_stop);
+                    exit(EXIT_FAILURE);
+                }
+                break;
             case 's':
                 new_address = atoi(optarg);
                 if (!(0 < new_address && new_address <= 247)) {
@@ -1143,10 +1188,22 @@ int main(int argc, char* argv[])
                 rotation_time_flag = 1;
                 rotation_time = atoi(optarg);
 
-                if (!(0 <= rotation_time && rotation_time <= 30)) {
+                if (model == MODEL_120 && !(0 <= rotation_time && rotation_time <= 30)) {
                     fprintf (stderr, "%s: New rotation time (%d) out of range, 0-30.\n", programName, rotation_time);
                     exit(EXIT_FAILURE);
+                } else if (model == MODEL_220 && !(0 <= rotation_time && rotation_time <= 9999)) {
+                    fprintf (stderr, "%s: SDM220 display time composite parameter (%d) out of range, 0-9999.\n", programName, rotation_time);
+                    exit(EXIT_FAILURE);
                 }
+                break;
+            case 'M':
+                measurement_mode_flag = 1;
+                measurement_mode = atoi(optarg);
+                if (!(1 <= measurement_mode && measurement_mode <= 3)) {
+                    fprintf (stderr, "%s: New measurement mode (%d) out of range, 1-3.\n", programName, rotation_time);
+                    exit(EXIT_FAILURE);
+                }
+                break;
                 break;
             case '1':
                 model = MODEL_120;
@@ -1163,7 +1220,7 @@ int main(int argc, char* argv[])
             case 'z':
                 num_retries = atoi(optarg);
                 if (!(0 < num_retries && num_retries <= MAX_RETRIES)) {
-                    fprintf (stderr, "%s: num_reties must be between 1 and %d.\n", programName, MAX_RETRIES);
+                    fprintf (stderr, "%s: num_retries (%d) out of range, 1-%d.\n", programName, num_retries, MAX_RETRIES);
                     exit(EXIT_FAILURE);
                 }
                 break;
@@ -1366,8 +1423,11 @@ int main(int argc, char* argv[])
     int   time_disp   = 0;
 
     if (new_address > 0 && new_baud_rate > 0) {
-
-        log_message(debug_flag, "Parameter -s and -r are mutually exclusive\n\n");
+        log_message(DEBUG_STDERR, "Parameter -s and -r are mutually exclusive\n\n");
+        usage(programName);
+        exit_error(ctx);
+    } else if ((new_address > 0 || new_baud_rate > 0) && new_parity_stop >= 0) {
+        log_message(DEBUG_STDERR, "Parameter -s, -r and -N are mutually exclusive\n\n");
         usage(programName);
         exit_error(ctx);
     } else if (new_address > 0) {
@@ -1380,7 +1440,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Address
-            changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_TRUE, 2);
+            changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_FALSE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
             ClrSerLock(PID);
@@ -1397,7 +1457,24 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Baud Rate
-            changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_TRUE, 2);
+            changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_FALSE, 2);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            return 0;
+        }
+
+    } else if (new_parity_stop >= 0) {
+
+        if (count_param > 0) {
+            usage(programName);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            exit(EXIT_FAILURE);
+        } else {
+            // change Parity/Stop
+            changeConfigFloat(ctx, NPARSTOP, new_parity_stop, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
             ClrSerLock(PID);
@@ -1414,11 +1491,26 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Time Rotation
-            if (model == MODEL_120) {
-                changeConfigBCD(ctx, TIME_DISP, rotation_time, RESTART_FALSE, 1);
-            } else {
-                changeConfigBCD(ctx, TIME_DISP_220, rotation_time, RESTART_FALSE, 1);
-            }
+            changeConfigBCD(ctx, 
+                            model == MODEL_120 ? TIME_DISP : TIME_DISP_220, 
+                            rotation_time, RESTART_FALSE, 1);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            return 0;
+        }
+
+    } else if (measurement_mode_flag > 0) {
+
+        if (count_param > 0) {
+            usage(programName);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            exit(EXIT_FAILURE);
+        } else {
+            // change Measurement Mode
+            changeConfigHex(ctx, TOT_MODE, measurement_mode, RESTART_FALSE);
             modbus_close(ctx);
             modbus_free(ctx);
             ClrSerLock(PID);
@@ -1631,7 +1723,9 @@ int main(int argc, char* argv[])
     }
 
     if (time_disp_flag == 1) {
-        time_disp = getConfigBCD(ctx, TIME_DISP, num_retries, 1);
+        time_disp = getConfigBCD(ctx,
+                                 model == MODEL_120 ? TIME_DISP : TIME_DISP_220,
+                                 num_retries, 1);
         read_count++;
         if (compact_flag == 1) {
             printf("%d ", (int) time_disp);
