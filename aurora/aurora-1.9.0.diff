@@ -21,7 +21,7 @@
  extern BOOL bSwapEndian;
  extern BOOL bUseMultiplierQ;
 --- aurora-1.9.0/main.c	2015-09-26 20:55:46.215899208 +0200
-+++ my-aurora-1.9.0/main.c	2015-10-23 00:54:05.000000000 +0200
++++ my-aurora-1.9.0/main.c	2015-11-03 19:40:30.000000000 +0100
 @@ -75,15 +75,21 @@
  static char	VersionM[] = "1.9.0";
  char     VersionC[7];
@@ -57,8 +57,8 @@
 +#define DEBUG_SYSLOG 2
 +
 +BOOL bVerbose = 0;              // FALSE;
-+int debug_mask = 0;             /* Default, no debug log */
-+//int debug_mask = DEBUG_SYSLOG;  /* Let only Syslog Pass */
++//int debug_mask = 0;             /* Default, no debug log */
++int debug_mask = DEBUG_SYSLOG;  /* Let only Syslog Pass */
  BOOL bColumns = FALSE;		/* Output data in columns */
  int yGetDSP = -1;		/* Measure request to the DSP */
  BOOL bGetDSPExtended = FALSE;	/* Measure request to the DSP more parameters */
@@ -80,20 +80,49 @@
  long unsigned int PID;
  int yMaxAttempts = 1;
  int yReadPause = 0;
-@@ -169,9 +188,10 @@
- /* local functions */
+@@ -170,8 +189,39 @@
  static int GetParms(int argc, char *argv[]);
  static void *getMemPtr(size_t mSize);
-+static void *reallocMemPtr(void *buffer, size_t mSize);
  static void Version();
 -static int getPIDcmdLen(long unsigned int PID);
 -static void getPIDcmd(long unsigned int PID, char* COMMAND);
 +static void *getPIDcmd(long unsigned int PID);
 +static void AddSerLock(long unsigned int PID, char *COMMAND);
++
++/*--------------------------------------------------------------------------
++    tv_diff
++----------------------------------------------------------------------------*/
++long inline tv_diff(struct timeval const * const t1, struct timeval const * const t2)
++{
++    struct timeval res;
++    timersub(t1, t2, &res);
++    return res.tv_sec*1000000 + res.tv_usec;    
++}
++
++/*--------------------------------------------------------------------------
++        rnd_usleep
++----------------------------------------------------------------------------*/
++long rnd_usleep(const useconds_t usecs)
++{
++    long unsigned rnd10 = 10.0*rand()/(RAND_MAX+1.0) + 1;
++    if (usleep(usecs*rnd10) == 0)
++        return usecs*rnd10;
++    else
++        return -1;
++}
++
++/*--------------------------------------------------------------------------
++    getIntLen
++----------------------------------------------------------------------------*/
++int getIntLen(long value){
++  long l=!value;
++  while(value) { l++; value/=10; }
++  return l;
++}
  
  /*--------------------------------------------------------------------------
      getCurTime
-@@ -191,66 +211,90 @@
+@@ -191,66 +241,87 @@
  }
  
  /*--------------------------------------------------------------------------
@@ -106,47 +135,51 @@
 -    FILE *fdserlck = NULL;
 -    int fLen = 0;
 -    char sPID[10];
-+    FILE *fdcmd = NULL;
-+    char *COMMAND = NULL;
-+    size_t bufLen = 64, 
-+           chunk = 32, 
-+           cmdLen = 0;
-+    int c;
-+    char sPID[16];
-     char *cmdFile = NULL;
- 
+-    char *cmdFile = NULL;
+-
 -    sPID[0] = '\0';
-     sprintf(sPID,"%lu",PID);
-     cmdFile = getMemPtr(strlen(sPID)+14+1);
+-    sprintf(sPID,"%lu",PID);
+-    cmdFile = getMemPtr(strlen(sPID)+14+1);
 -    cmdFile[0] = '\0';
-     sprintf(cmdFile,"/proc/%lu/cmdline",PID);
+-    sprintf(cmdFile,"/proc/%lu/cmdline",PID);
 -    cmdFile[strlen(cmdFile)] = '\0';
 -    fdserlck = fopen(cmdFile, "r");
 -    if (fdserlck != NULL) {
 -        while (fgetc(fdserlck) != EOF) fLen++;
 -        fclose(fdserlck);
 -        fdserlck = NULL;
-+    
-+    fdcmd = fopen(cmdFile, "r");
-+    if (fdcmd != NULL) {
-+        COMMAND = getMemPtr(bufLen);
-+        errno=0;
-+        for (c=fgetc(fdcmd); c != EOF ; c=fgetc(fdcmd)) {
-+            COMMAND[cmdLen++] = c;
-+            if (c=='\0') break;
-+            if (cmdLen>=bufLen) {
-+                COMMAND = reallocMemPtr(COMMAND, bufLen+chunk);
-+                bufLen += chunk;
-     }
+-    }
 -    if (cmdFile != NULL) {
 -        free(cmdFile);
 -        cmdFile = NULL;
-     }
+-    }
 -    return fLen;
-+        COMMAND[cmdLen] = '\0';
-+        fclose(fdcmd);
++    int fdcmd;
++    char *COMMAND = NULL;
++    size_t cmdLen = 0;
++    size_t length;
++    char buffer[1024];
++    char cmdFilename[getIntLen(PID)+14+1];
++
++    // Generate the name of the cmdline file for the process
++    *cmdFilename = '\0';
++    snprintf(cmdFilename,sizeof(cmdFilename),"/proc/%lu/cmdline",PID);
++    
++    // Read the contents of the file
++    if ((fdcmd  = open(cmdFilename, O_RDONLY)) < 0) return NULL;
++    if ((length = read(fdcmd, buffer, sizeof(buffer))) <= 0) {
++        close(fdcmd); return NULL;
++    }     
++    close(fdcmd);
++    
++    // read does not NUL-terminate the buffer, so do it here
++    buffer[length] = '\0';
++    // Get 1st string (command)
++    cmdLen=strlen(buffer)+1;
++    if((COMMAND = getMemPtr(cmdLen)) != NULL ) {
++        strncpy(COMMAND, buffer, cmdLen);
++        COMMAND[cmdLen-1] = '\0';
  }
-+    free(cmdFile);
  
 +    return COMMAND;
 +}
@@ -207,10 +240,7 @@
 +       fprintf(stderr, "%s: %s(%lu) ", getCurTime(), ProgramName, PID);
 +       fprintf(stderr, buffer);
 +       fprintf(stderr, "\n");
-     }
--    if (cmdFile != NULL) {
--        free(cmdFile);
--        cmdFile = NULL;
++    }
 +    
 +    if (log & debug_mask & DEBUG_SYSLOG) {
 +        openlog("aurora", LOG_PID|LOG_CONS, LOG_USER);
@@ -220,13 +250,16 @@
 +            syslog(LOG_INFO, versionbuffer);
 +            syslog(LOG_INFO, cmdline);
 +            bCmdlineSyslogged++;
-+        }
+     }
+-    if (cmdFile != NULL) {
+-        free(cmdFile);
+-        cmdFile = NULL;
 +        syslog(LOG_INFO, buffer);
 +        closelog();
      }
  }
  
-@@ -269,11 +313,11 @@
+@@ -269,11 +340,11 @@
      char RunTime[18] = " ";
      char EndTime[18] = " ";
      long unsigned int LckPID;
@@ -240,8 +273,12 @@
      char *COMMAND = NULL;
      char *LckCOMMAND = NULL;
      char *LckPIDcommand = NULL;
-@@ -291,7 +335,7 @@
+@@ -289,9 +360,11 @@
+     strftime(RunTime,sizeof(RunTime),"%Y%m%d-%H:%M:%S",&timStruct);
+     RunTime[sizeof(RunTime)-1] = '\0';
  
++    srand(getpid()^time(NULL));      // Init random numbers
++
      errno = 0;
      PID = getpid();
 -
@@ -249,7 +286,7 @@
  
      /* Get command line parms */
      if ((!GetParms(argc, argv) && !bVersion) || bHelp) {
-@@ -379,7 +423,7 @@
+@@ -379,7 +452,7 @@
          printf(" -X, --rts-cts                  Enable RTS/CTS on the serial port.\n");
  	printf(" -x, --xon-xoff                 Enable XON/XOFF on the serial port.\n");
          printf(" -Y <num>, --retries=<num>      Retry failed communications with inverter up to <num> times (1-100)\n");
@@ -258,34 +295,62 @@
          printf("               *** Required Parameters ***\n");
          printf(" -a <num>, --address=<num>      Inverter address. 1-31 on older inverters, 1-63 on newer inverters.\n");
          printf(" Device                         Serial Device.\n");
-@@ -413,35 +457,21 @@
+@@ -413,84 +486,135 @@
          exit(0);
      }
  
 -    fLen = getPIDcmdLen(PID);
 -    COMMAND = getMemPtr(fLen+1);
 -    getPIDcmd(PID,COMMAND);
--
++    COMMAND = getPIDcmd(PID);
++    AddSerLock(PID, COMMAND);
+ 
 -    if (bVerbose) fprintf(stderr, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
 -    fdserlck = fopen((const char *)devLCKfile, "a");
--    if (fdserlck == NULL) {
++    LckPID = 0;
++    long unsigned int oldLckPID = 0;
++    int staleLockRetries = 0;
++    int const staleLockRetriesMax = 2;
++    long unsigned int clrStaleTargetPID = 0;    
++    int missingPidRetries = 0;
++    int const missingPidRetriesMax = 2;
++    
++    gettimeofday(&tLockStart, NULL);
++    tLockNow=tLockStart;
++    
++    if (bVerbose) fprintf(stderr, "Checking for lock\n");
++    while(LckPID != PID &&  tv_diff(&tLockNow, &tLockStart) <= yLockWait*1000000L) {
++          
++        do {
++            fdserlck = fopen(devLCKfile, "r");
+     if (fdserlck == NULL) {
 -        if (bVerbose) fprintf(stderr, "\n");
 -        fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
--        exit(2);
--    }
++                log_message(bVerbose | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for read.",devLCKfile);
+         exit(2);
+     }
 -    bWrite = fprintf(fdserlck, "%lu %s\n", PID, COMMAND);
--    errno_save = errno;
--    fclose(fdserlck);
++            //log_message(bVerbose, "Acquiring shared lock on %s...",devLCKfile);
++            errno = 0;
++            if (flock(fileno(fdserlck), LOCK_SH | LOCK_NB) == 0) break;      // Lock Acquired 
+     errno_save = errno;
++            
++            if (errno_save == EWOULDBLOCK) {
++                log_message(bVerbose, "Would block %s, retry (%d) %s...", devLCKfile, errno_save, strerror(errno_save));
++                rnd_usleep(25000);
+     fclose(fdserlck);
 -    fdserlck = NULL;
 -    if (bWrite < 0 || errno_save != 0) {
 -        if (bVerbose) fprintf(stderr, "\n");
 -        fprintf(stderr, "%s: %s: Problem locking serial device, can't write lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
--        exit(2);
--    }
-+    COMMAND = getPIDcmd(PID);
-+    AddSerLock(PID, COMMAND);
++            } else {
++                log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for read. (%d) %s", devLCKfile, errno_save, strerror(errno_save));
+         exit(2);
+     }
++        } while (errno_save == EWOULDBLOCK);
++        //log_message(bVerbose, "Shared lock on %s acquired...",devLCKfile);
  
-     LckPID = 0;
+-    LckPID = 0;
 -    lckCNT = -1;
 -    lckCNTbeg = TRUE;
 -    while(LckPID != PID && lckCNT++ < yLockWait) {
@@ -293,21 +358,13 @@
 -            fprintf(stderr, "Checking for lock\n");
 -            lckCNTbeg = FALSE;
 -        }
-+    long unsigned int oldLckPID = 0;
-+    int badStatusRetries = 0;
-+    int const badStatusRetriesMax = 2;
-+    long unsigned int clrStaleTargetPID = 0;    
-+    
-+    gettimeofday(&tLockStart, NULL);
-+    tLockNow=tLockStart;
-+    
-+    if (bVerbose) fprintf(stderr, "Checking for lock\n");
-+    while(LckPID != PID &&
-+          tLockNow.tv_sec*1000000L+tLockNow.tv_usec <= tLockStart.tv_sec*1000000L + tLockStart.tv_usec + yLockWait*1000000L) {
-         fdserlck = fopen(devLCKfile, "r");
-         if (fdserlck == NULL) {
-             if (bVerbose) fprintf(stderr, "\n");
-@@ -452,30 +482,49 @@
+-        fdserlck = fopen(devLCKfile, "r");
+-        if (fdserlck == NULL) {
+-            if (bVerbose) fprintf(stderr, "\n");
+-            fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for read.\n\n",getCurTime(),ProgramName,devLCKfile);
+-            exit(2);
+-        }
+ 
          fLen = 0;
          while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n' && curChar != ' ') fLen++;
          fLen = 0;
@@ -315,8 +372,12 @@
 +        if (curChar == ' ') while ((curChar = fgetc(fdserlck)) != EOF && curChar != '\n') fLen++;
 +        
          rewind(fdserlck);
++        
++        //if (LckPID != oldLckPID) log_message(bVerbose, "fLen=%i", fLen);
          LckCOMMAND = getMemPtr(fLen+1);
++        //if (LckPID != oldLckPID) log_message(bVerbose, "fLen=%i LckCOMMAND %s", fLen, (LckCOMMAND==NULL ? "is null" : "is not null"));
          LckCOMMAND[0] = '\0';
++        LckPID=0;
  
 -        bRead = fscanf(fdserlck, "%lu %s", &LckPID, LckCOMMAND);
 +        errno = 0;  
@@ -325,49 +386,56 @@
          fclose(fdserlck);
 -        if (bVerbose) fprintf(stderr, "\nChecking process %lu (%s) for lock\n", LckPID, LckCOMMAND);
 -        fdserlck = NULL;
-+        if (LckPID != oldLckPID) {
-+            log_message(bVerbose | (bRead==EOF ? DEBUG_SYSLOG : 0), "errno=%i, bRead=%i PID=%lu LckPID=%lu", errno_save, bRead, PID, LckPID);
-+            log_message(bVerbose, "Checking process %lu (%s) for lock", LckPID, LckCOMMAND);
-+            oldLckPID = LckPID;
-+        }    
-         if (bRead == EOF || errno_save != 0) {
+-        if (bRead == EOF || errno_save != 0) {
 -            if (bVerbose) fprintf(stderr, "\n");
 -            fprintf(stderr, "%s: %s: Problem locking serial device, can't read lock file: %s.\n%s\n\n",getCurTime(),ProgramName,devLCKfile,strerror (errno_save));
++        if (LckPID != oldLckPID) {
++            log_message(bVerbose | (bRead==EOF || errno_save != 0 ? DEBUG_SYSLOG : 0), "errno=%i, bRead=%i PID=%lu LckPID=%lu", errno_save, bRead, PID, LckPID);
++            log_message(bVerbose, "Checking process %lu (%s) for lock", LckPID, LckCOMMAND);
++            //oldLckPID = LckPID;
++        }    
++        if (bRead == EOF || LckPID == 0 || errno_save != 0) {
 +            log_message(bVerbose | DEBUG_SYSLOG, "Problem locking serial device, can't read PID from lock file: %s.",devLCKfile);
 +            if (errno_save != 0) {
 +                // Real error 
 +                log_message(bVerbose | DEBUG_SYSLOG, "(%u) %s", errno_save, strerror(errno_save));
 +                free(LckCOMMAND); free(LckPIDcommand); free(COMMAND);
              exit(2);
+-        }
 +            } else {
-+                if (badStatusRetries < badStatusRetriesMax) {
-+                    badStatusRetries++;
++                if (missingPidRetries < missingPidRetriesMax) {
++                    missingPidRetries++;
 +                    log_message(bVerbose, "%s miss process self PID from lock file?",devLCKfile);
-+                } else if (badStatusRetries >= badStatusRetriesMax) {
++                } else if (missingPidRetries >= missingPidRetriesMax) {
 +                    // Self PID missing... (Should never happen)
 +                    log_message(bVerbose | DEBUG_SYSLOG, "%s miss process self PID from lock file, amending.",devLCKfile);
 +                    AddSerLock(PID, COMMAND);
 +                    //LckPID=0;
-+                    badStatusRetries = 0;
++                    missingPidRetries = 0;
 +                }
-         }
++            }
++            oldLckPID = LckPID;            
 +        } else { //fread OK
++
++          // We got a pid from lockfile, let's clear missing pid status
++          missingPidRetries = 0;
  
 -        fLen = getPIDcmdLen(LckPID);
 -        LckPIDcommand = getMemPtr(fLen+1);
 -        getPIDcmd(LckPID,LckPIDcommand);
 +          LckPIDcommand = getPIDcmd(LckPID);
  
--        if (bVerbose) {
-+          if (bVerbose && LckPID != oldLckPID) {
++          if (LckPID != oldLckPID) {
+         if (bVerbose) {
              fprintf (stderr, "PID: %lu COMMAND: \"%s\" LckPID: %lu LckCOMMAND: \"%s\" LckPIDcommand \"%s\"", PID, COMMAND, LckPID, LckCOMMAND, LckPIDcommand);
              if (LckPID == PID) fprintf (stderr, " = me");
              fprintf (stderr, "\n");
-+              oldLckPID = LckPID;              
          }
++              oldLckPID = LckPID;              
++          }
  
  //      PID           - this process
-@@ -483,14 +532,26 @@
+ //      LckPID        - PID from lock file
  //	COMMAND       - this process
  //	LckCOMMAND    - process command from lock file
  //	LckPIDcommand - process command of process using PID from lock file
@@ -375,32 +443,37 @@
 +          if ((PID != LckPID && LckPIDcommand == NULL) || (LckCOMMAND[0]!='\0' && strcmp(LckPIDcommand,LckCOMMAND) != 0) || strcmp(LckPIDcommand,"") == 0) {
              if (bVerbose) fprintf (stderr, "\n");
 -            fprintf(stderr, "%s: %s: Clearing stale serial port lock. (%lu)\n",getCurTime(),ProgramName,LckPID);
--            ClrSerLock(LckPID);
++                // Is it a stale lock pid?
++                if (staleLockRetries < staleLockRetriesMax) {
++                    staleLockRetries++;
++                    clrStaleTargetPID = LckPID;
++                    log_message(bVerbose | (staleLockRetries > 1 ? DEBUG_SYSLOG : 0), "Stale pid lock? PID=%lu, LckPID=%lu, LckCOMMAND='%s', LckPIDCommand='%s'", PID, LckPID, LckCOMMAND, LckPIDcommand);
++                } else if (LckPID == clrStaleTargetPID && staleLockRetries >= staleLockRetriesMax) {
++                    log_message(bVerbose | DEBUG_SYSLOG, "Clearing stale serial port lock. (%lu)", LckPID);
+             ClrSerLock(LckPID);
 -            lckCNT = -1;
 -        } else if (yLockWait > 0)
 -            sleep(1);
-+              if (badStatusRetries < badStatusRetriesMax) {
-+                  badStatusRetries++;
-+                  clrStaleTargetPID = LckPID;
-+                  log_message(bVerbose, "Stale pid lock? PID=%lu, LckPID=%lu, LckCOMMAND='%s', LckPIDCommand='%s'", PID, LckPID, LckCOMMAND, LckPIDcommand);
-+              } else if (LckPID == clrStaleTargetPID && badStatusRetries >= badStatusRetriesMax) {
-+                  log_message(bVerbose | DEBUG_SYSLOG, "Clearing stale serial port lock. (%lu)", LckPID);                  ClrSerLock(LckPID);
-+                  badStatusRetries = 0;
-+                  clrStaleTargetPID = 0;
-+              }
++                    staleLockRetries = 0;
++                    clrStaleTargetPID = 0;
++                }
++          } else {
++                // Pid lock have a process running, let's reset stale pid retries
++                staleLockRetries = 0;
++                clrStaleTargetPID = 0;
 +          } 
 +        }
 +
-+        if (yLockWait > 0) {
-+            //if (bVerbose) fprintf(stderr, "Sleeping 25ms");
-+            usleep(25000);
++        if (yLockWait > 0 && LckPID != PID) {
++            rnd_usleep(25000);
++            //log_message(bVerbose, "Sleeping %luus", rnd_usleep(25000));
 +        }
  
 +        // Cleanup and loop
          if (LckCOMMAND != NULL) {
              free(LckCOMMAND);
              LckCOMMAND = NULL;
-@@ -499,6 +560,7 @@
+@@ -499,12 +623,15 @@
              free(LckPIDcommand);
              LckPIDcommand = NULL;
          }
@@ -408,7 +481,15 @@
      }
      free(COMMAND);
      if (bVerbose && LckPID == PID) fprintf(stderr, "Appears we got the lock.\n");
-@@ -728,9 +790,12 @@
+     if (LckPID != PID) {
+         if (bVerbose) fprintf (stderr, "\n");
+         fprintf(stderr, "%s: %s: Problem locking serial device %s, couldn't get the lock for %lu, locked by %lu.\n",getCurTime(),ProgramName,szttyDevice,PID,LckPID);
++        log_message(bVerbose | DEBUG_SYSLOG, "Unable to get lock on serial %s for %lu in %ds: still locked by %lu.",szttyDevice,PID,(yLockWait)%30,LckPID);
++        log_message(bVerbose | DEBUG_SYSLOG, "Getting lock timed out after %ldus", tv_diff(&tLockNow, &tLockStart));
+         ClrSerLock(PID);
+         exit(2);
+     }
+@@ -728,9 +855,12 @@
  
      RestorePort(fdser);
      ClrSerLock(PID);
@@ -422,7 +503,7 @@
          if (bVerbose) fprintf(stderr, "\n");
          fprintf(stderr, "%s: %s: ERROR: Received bad return code (%i %i",getCurTime(),ProgramName,rc,invOp);
          if (invFunc > 0)
-@@ -755,31 +820,31 @@
+@@ -755,31 +885,31 @@
  ----------------------------------------------------------------------------*/
  int RestorePort(int fdser) {
  
@@ -465,7 +546,7 @@
          return 2;
      }
  
-@@ -794,6 +859,52 @@
+@@ -794,6 +924,52 @@
      return 0;
  }
  
@@ -480,12 +561,12 @@
 +    
 +    if (bVerbose) fprintf(stderr, "\nAttempting to get lock on Serial Port %s...\n",szttyDevice);
 +    do {
-+      fdserlck = fopen((const char *)devLCKfile, "a");
-+      if (fdserlck == NULL) {
-+          if (bVerbose) fprintf(stderr, "\n");
-+          fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
-+          exit(2);
-+      }
++        fdserlck = fopen((const char *)devLCKfile, "a");
++        if (fdserlck == NULL) {
++            if (bVerbose) fprintf(stderr, "\n");
++            fprintf(stderr, "%s: %s: Problem locking serial device, can't open lock file: %s for write.\n\n",getCurTime(),ProgramName,devLCKfile);
++            exit(2);
++        }
 +        if (bVerbose) fprintf(stderr, "Acquiring shared lock on %s...\n",devLCKfile);
 +        errno = 0;
 +        if (flock(fileno(fdserlck), LOCK_SH | LOCK_NB) == 0 ) break;      // Lock Acquired 
@@ -493,7 +574,7 @@
 +        
 +        if (errno_save == EWOULDBLOCK) {
 +            if (bVerbose) fprintf(stderr, "Whould block %s, retry (%d)...\n",devLCKfile, errno_save);
-+            usleep(25000);
++            rnd_usleep(25000);
 +            fclose(fdserlck);
 +        } else {
 +            fprintf(stderr, "%s: Problem locking serial device, can't open lock file: %s for write. (%d)\n",ProgramName,devLCKfile, errno_save);
@@ -518,7 +599,7 @@
  
  /*--------------------------------------------------------------------------
      ClrSerLock
-@@ -818,7 +929,31 @@
+@@ -818,7 +994,31 @@
          fprintf(stderr, "\n%s: %s: Problem opening serial device lock file to clear LckPID %lu: %s for read.\n\n",getCurTime(),ProgramName,LckPID,devLCKfile);
          return(0);
      }
@@ -551,7 +632,7 @@
      if (fdserlcknew == NULL) {
          if (bVerbose) fprintf(stderr, "\n");
          fprintf(stderr, "\n%s: %s: Problem opening new serial device lock file to clear LckPID %lu: %s for write.\n\n",getCurTime(),ProgramName,LckPID,devLCKfileNew);
-@@ -826,38 +961,88 @@
+@@ -826,38 +1026,86 @@
          return(0);
      }
  
@@ -599,7 +680,7 @@
 +        errno=0; PID=0; COMMAND[0] = '\0';
 +        bRead = fscanf(fdserlck, "%lu%*[ ]%[^\n]\n", &PID, COMMAND);
 +        if (bVerbose) fprintf(stderr, "errno=%i, bRead=%i LckPID=%lu PID=%lu COMMAND='%s'\n", errno_save, bRead, LckPID, PID, COMMAND);
-+    }
+     }
 +
 +    fflush(fdserlcknew);
 +
@@ -609,9 +690,7 @@
 +#if CHECKFORGHOSTAPPEND
 +
 +    log_message(bVerbose, "Clearing Serial Port Lock amost done...");
-+
-+    log_message(bVerbose, "Sleeping 10ms");
-+    usleep(10000);
++    log_message(bVerbose, "Sleeping %luus", rnd_usleep(10000));
 +
 +    // Check for latest appends (ghost appends)
 +    int iGhost=10;
@@ -628,9 +707,9 @@
 +                fclose(fdserlcknew);
 +                return(0);
 +            }
-     }
-+        //log_message(bVerbose, "Sleeping 10ms");
-+        usleep(10000);
++        }
++        fflush(fdserlcknew);
++        log_message(bVerbose, "Sleeping %ldus", rnd_usleep(10000));
 +        iGhost--; PID=0;
 +        bRead = fscanf(fdserlck, "%lu%*[ ]%*[^\n]\n", &PID);
 +    }
@@ -646,7 +725,15 @@
      if (bVerbose) fprintf(stderr, " done.\n");
  
      return -1;
-@@ -973,7 +1158,10 @@
+@@ -889,7 +1137,6 @@
+     BOOL b = FALSE;
+     char *pos;
+     char *SubStrPos = NULL;
+-    char sPID[10];
+     static char *Cost = NULL;
+ 
+     if (strpbrk(VersionM,"abcdefghijklmnopqurtsuvwxyz") != NULL) fprintf(stderr, "\n**** THIS IS EXPERIMENTAL CODE %-6s ****\n",VersionM);
+@@ -973,7 +1220,10 @@
                  yAddress = atoi(optarg);
                  break;
              case 'A': bGetLastAlarms     = TRUE; break;
@@ -658,7 +745,7 @@
              case 'C':
                  SubStrPos = strstr(optarg, ":");
                  if (SubStrPos == NULL)
-@@ -1166,7 +1354,7 @@
+@@ -1166,7 +1416,7 @@
                      return 0;
                  }
                  break;
@@ -667,7 +754,17 @@
              case 'V': bVersion     = TRUE; break;
              case 'v': bGetVer      = TRUE; break;
  
-@@ -1227,19 +1415,30 @@
+@@ -1194,8 +1444,7 @@
+         strcpy(devLCKfile,ttyLCKloc);
+         strcat(devLCKfile, pos);
+         devLCKfile[strlen(devLCKfile)] = '\0';
+-        sprintf(sPID,"%lu",PID);
+-        devLCKfileNew = getMemPtr(strlen(devLCKfile)+strlen(sPID)+2);	/* dot & terminator */
++        devLCKfileNew = getMemPtr(strlen(devLCKfile)+getIntLen(PID)+2);	/* dot & terminator */
+         devLCKfileNew[0] = '\0';
+         strcpy(devLCKfileNew,devLCKfile);
+         sprintf(devLCKfileNew,"%s.%lu",devLCKfile,PID);
+@@ -1227,20 +1476,15 @@
  void *getMemPtr(size_t mSize)
  {
      void *ptr;
@@ -683,35 +780,10 @@
      }
 -    cptr = (char *)ptr;
 -    for (i = 0; i < mSize; i++) cptr[i] = '\0';
-+//    memset(ptr, 0, mSize);
      return ptr;
  }
  
-+/*--------------------------------------------------------------------------
-+        reallocMemPtr
-+----------------------------------------------------------------------------*/
-+void *reallocMemPtr(void *buffer, size_t mSize)
-+{
-+    void *ptr;
-+
-+    ptr = realloc(buffer, mSize);
-+    if (!ptr) {
-+        fprintf(stderr, "\n%s: realloc failed\n", ProgramName);
-+        exit(2);
-+    }
-+    return ptr;
-+}
- 
+-
  /*--------------------------------------------------------------------------
      Version
---- aurora-1.9.0/Makefile	2013-11-17 01:54:30.307376636 +0100
-+++ my-aurora-1.9.0/Makefile	2015-10-19 15:22:18.874211883 +0200
-@@ -6,7 +6,7 @@
- #TUNE = native
- 
- CC = gcc
--CFLAGS = -O2 -Wall -I/usr/include -I./include
-+CFLAGS = -O2 -g -Wall -I/usr/include -I./include
- OFILES = main.o comm.o
- 
- INSTALLSITEMAN1DIR = ${mandir}/man1
+     Display program component versions
