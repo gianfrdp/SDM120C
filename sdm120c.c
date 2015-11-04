@@ -102,7 +102,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5";
+const char *version     = "1.3.5.1";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -452,7 +452,7 @@ void AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsi
         fdserlck = fopen((const char *)devLCKfile, "a");
         if (fdserlck == NULL) {
             log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Problem locking serial device, can't open lock file: %s for write.",devLCKfile);
-            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Check execution permission for %s, it shoud be '-rws--x--x'.");        
+            log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Check owner and execution permission for '%s', they shoud be root '-rws--x--x'.",programName);
             exit(2);
         }
         log_message(debug_flag, "Acquiring shared lock on %s...",devLCKfile);
