@@ -9,13 +9,22 @@ $I1V = null;
 $I1A = null;
 $I1P = null;
 
-$CMD_POOLING = "sdm120c -a ${'ADR'.$invt_num} ${'COMOPTION'.$invt_num} -q ${'PORT'.$invt_num}";
+$errornum = null;
+
+// Ask sdm120c: 
+//      - Voltage (-v)
+//      - Power (-p)
+//      - Current (-c)
+//      - Frequency (-f)
+//      - Imported energy (-i)
+ 
+$CMD_POOLING = "sdm120c -a ${'ADR'.$invt_num} ${'COMOPTION'.$invt_num} -vpcfi -q ${'PORT'.$invt_num}";
 
 if ($DEBUG != 0) {
    error_log("$CMD_POOLING",0);
 }
 
-$CMD_RETURN = exec($CMD_POOLING);
+$CMD_RETURN = exec($CMD_POOLING, $errornum);
 
 if ($DEBUG != 0) {
   error_log("$CMD_RETURN",0);
@@ -33,7 +42,7 @@ settype($G1A, 'float');
 $G1P = $dataarray[2];
 settype($G1P, 'float');
 
-$FRQ = $dataarray[4];
+$FRQ = $dataarray[3];
 settype($FRQ, 'float');
 
 $EFF = (float) 0.0;
@@ -42,11 +51,11 @@ $INVT = null;
 
 $BOOT = null;
 
-$KWHT = $dataarray[7];
+$KWHT = $dataarray[4];
 settype($KWHT, 'float');
 $KWHT = $KWHT/1000;
 
-if ($KWHT != 0) {
+if ($errornum == 0) {
   $RET = 'OK';
 } else {
   $RET = 'NOK';
