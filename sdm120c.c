@@ -30,8 +30,9 @@ extern "C" {
 
 #include <sys/types.h>
 #include <sys/file.h>
-#include <time.h>
+#include <sys/time.h>
 
+#include <time.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -102,7 +103,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5.1";
+const char *version     = "1.3.5.2";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -558,7 +559,7 @@ int getMeasureBCD(modbus_t *ctx, int address, int retries, int nb) {
       rc = modbus_read_input_registers(ctx, address, nb, tab_reg); // will wait response_timeout for a reply
 
       if (rc == -1) {
-        log_message(debug_flag | ( j>1 ? DEBUG_SYSLOG : 0), "%s: ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
+        log_message(debug_flag | ( j==retries ? DEBUG_SYSLOG : 0), "%s: ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
         /* libmodbus already flushes 
         log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
         */
@@ -614,8 +615,8 @@ float getMeasureFloat(modbus_t *ctx, int address, int retries, int nb) {
 
       if (rc == -1) {
         if (trace_flag) fprintf(stderr, "%s: ERROR (%d) %s, %d/%d\n", programName, errno_save, modbus_strerror(errno_save), j, retries);
-        log_message(debug_flag | ( j>1 ? DEBUG_SYSLOG : 0), "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno_save, modbus_strerror(errno_save), j, retries, 30000+address+1, address);
-        log_message(debug_flag | ( j>1 ? DEBUG_SYSLOG : 0), "Response timeout gave up after %ldus", tv_diff(&tvStop, &tvStart));
+        log_message(debug_flag | ( j==retries ? DEBUG_SYSLOG : 0), "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno_save, modbus_strerror(errno_save), j, retries, 30000+address+1, address);
+        log_message(debug_flag | ( j==retries ? DEBUG_SYSLOG : 0), "Response timeout gave up after %ldus", tv_diff(&tvStop, &tvStart));
         /* libmodbus already flushes 
         log_message(debug_flag, "Flushing modbus buffer");
         log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
@@ -673,7 +674,7 @@ int getConfigBCD(modbus_t *ctx, int address, int retries, int nb) {
       rc = modbus_read_registers(ctx, address, nb, tab_reg);
 
       if (rc == -1) {
-        log_message(debug_flag | ( j>1 ? DEBUG_SYSLOG : 0), "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
+        log_message(debug_flag | ( j==retries ? DEBUG_SYSLOG : 0), "ERROR (%d) %s, %d/%d, Address %d [%04X]", errno, modbus_strerror(errno), j, retries, 30000+address+1, address);
         /* libmodbus already flushes 
         log_message(debug_flag, "Flushing modbus buffer");
         log_message(debug_flag, "Flushed %d bytes", modbus_flush(ctx));
@@ -1268,14 +1269,14 @@ int main(int argc, char* argv[])
             case 'j':
                 resp_timeout = atoi(optarg);
                 if (resp_timeout < 1 || resp_timeout > 500) {
-                    fprintf(stderr, "%s: -j Response timeout (%lu) out of range, 0-500.\n",programName,resp_timeout);
+                    fprintf(stderr, "%s: -j Response timeout (%lu) out of range, 0-500.\n",programName,(long unsigned)resp_timeout);
                     exit(EXIT_FAILURE);
                 }
                 break;
             case 'y':
                 byte_timeout = atoi(optarg);
                 if (byte_timeout < 1 || byte_timeout > 500) {
-                    fprintf(stderr, "%s: -y Byte timeout (%lu) out of range, 1-500.\n",programName,byte_timeout);
+                    fprintf(stderr, "%s: -y Byte timeout (%lu) out of range, 1-500.\n",programName,(long unsigned)byte_timeout);
                     exit(EXIT_FAILURE);
                 }
                 break;
