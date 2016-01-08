@@ -103,7 +103,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5.2";
+const char *version     = "1.3.5.3";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -485,7 +485,7 @@ void AddSerLock(const char *szttyDevice, const char *devLCKfile, const long unsi
     }
 }
 
-inline void exit_error(modbus_t *ctx)
+void exit_error(modbus_t *ctx)
 {
 /*
       // Wait for line settle
