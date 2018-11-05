@@ -1489,7 +1489,7 @@ int main(int argc, char* argv[])
             return 0;
         }
 
-    } else if (new_baud_rate > 0) {
+    } else if (new_baud_rate >= 0) {
 
         if (count_param > 0) {
             usage(programName);
