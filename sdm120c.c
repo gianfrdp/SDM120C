@@ -78,6 +78,7 @@ extern "C" {
 #define BAUD_RATE 0x001C
 #define TIME_DISP_220 0xF500
 #define TIME_DISP 0xF900
+#define PULSE_OUT 0xF910
 #define TOT_MODE  0xF920
 
 #define BR1200 5
@@ -103,7 +104,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5.3";
+const char *version     = "1.3.5.4";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -128,7 +129,10 @@ void usage(char* program) {
     printf("Usage: %s [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
     printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
     printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device\n\n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -N parity device \n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device \n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -M new_mmode device \n", program);
+    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -O new_pulse device\n\n", program);
     printf("Required:\n");
     printf("\tdevice\t\tSerial device (i.e. /dev/ttyUSB0)\n");
     printf("Connection parameters:\n");
@@ -161,12 +165,14 @@ void usage(char* program) {
     printf("\t-s new_address \tSet new meter number (1-247)\n");
     printf("\t-r baud_rate \tSet baud_rate meter speed (1200, 2400, 4800, 9600)\n");
     printf("\t-N parity \tSet parity and stop bits (0-3)\n");
-    printf("\t\t\t0: N1, 1: E1, 2: O1, 3:N2\n");
+    printf("\t\t\t0: N1, 1: E1, 2: O1, 3: N2\n");
     printf("\t-R new_time  \tSet rotation time for displaying values (0=no rotation)\n");
     printf("\t\t\tSDM120: (0-30s)\n");
-    printf("\t\t\tSDM120: (m-m-s-m) Demand interval, Slide time, Scroll time, Backlight time\n"); 
+    printf("\t\t\tSDM220: (m-m-s-m) Demand interval, Slide time, Scroll time, Backlight time\n"); 
     printf("\t-M new_mmode \tSet total energy measurement mode (1-3)\n");
     printf("\t\t\t1: Total=Import, 2: Total=Import+Export, 3: Total=Import-Export\n");
+    printf("\t-O new_pulse \tSet Pulse 1 output (0-3)\n");
+    printf("\t\t\t0: 0.001kWh/imp(default), 1: 0.01kWh/imp, 2: 0.1kWh/imp, 3: 1kWh/imp\n");
     printf("Fine tuning & debug parameters:\n");
     printf("\t-z num_retries\tTry to read max num_retries times on bus before exiting\n");
     printf("\t\t\twith error. Default: 1 (no retry)\n");
@@ -1035,6 +1041,8 @@ int main(int argc, char* argv[])
     int rotation_time  = 0; 
     int measurement_mode_flag = 0;
     int measurement_mode = 0; 
+    int pulse_flag     = 0;
+    int pulse_mode     = 0;
     int count_param    = 0;
     int num_retries    = 1;
 #if LIBMODBUS_VERSION_MAJOR >= 3 && LIBMODBUS_VERSION_MINOR >= 1 && LIBMODBUS_VERSION_MICRO >= 2
@@ -1077,7 +1085,7 @@ int main(int argc, char* argv[])
 
     opterr = 0;
 
-    while ((c = getopt (argc, argv, "a:Ab:BcCd:D:efgij:lmM:nN:opP:qr:R:s:S:tTvw:W:xy:z:12")) != -1) {
+    while ((c = getopt (argc, argv, "a:Ab:BcCd:D:efgij:lmM:nN:oOpP:qr:R:s:S:tTvw:W:xy:z:12")) != -1) {
         switch (c)
         {
             case 'a':
@@ -1246,6 +1254,13 @@ int main(int argc, char* argv[])
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'O':
+                pulse_flag = 1;
+                pulse_mode = atoi(optarg);
+                if (!(0 <= pulse_mode && pulse_mode <= 3)) {
+                    fprintf (stderr, "%s: New pulse mode (%d) out of range, 0-3.\n", programName, pulse_mode);
+                    exit(EXIT_FAILURE);
+                }
                 break;
             case '1':
                 model = MODEL_120;
@@ -1553,6 +1568,23 @@ int main(int argc, char* argv[])
         } else {
             // change Measurement Mode
             changeConfigHex(ctx, TOT_MODE, measurement_mode, RESTART_FALSE);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            return 0;
+        }
+
+    } else if (pulse_flag > 0) {
+
+        if (count_param > 0) {
+            usage(programName);
+            modbus_close(ctx);
+            modbus_free(ctx);
+            ClrSerLock(PID);
+            exit(EXIT_FAILURE);
+        } else {
+            // change Measurement Mode
+            changeConfigHex(ctx, PULSE_OUT, pulse_mode, RESTART_FALSE);
             modbus_close(ctx);
             modbus_free(ctx);
             ClrSerLock(PID);
