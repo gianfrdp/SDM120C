@@ -126,13 +126,13 @@ void usage(char* program) {
     printf("sdm120c %s: ModBus RTU client to read EASTRON SDM120C smart mini power meter registers\n",version);
     printf("Copyright (C) 2015 Gianfranco Di Prinzio <gianfrdp@inwind.it>\n");
     printf("Complied with libmodbus %s\n\n", LIBMODBUS_VERSION_STRING);
-    printf("Usage: %s [-a address] [-d] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -N parity device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -M new_mmode device \n", program);
-    printf("       %s [-a address] [-d] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -O new_pulse device\n\n", program);
+    printf("Usage: %s [-a address] [-d n] [-x] [-p] [-v] [-c] [-e] [-i] [-t] [-f] [-g] [-T] [[-m]|[-q]] [-b baud_rate] [-P parity] [-S bit] [-z num_retries] [-j seconds] [-w seconds] [-1 | -2] device\n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -s new_address device\n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -r baud_rate device \n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -N parity device \n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -R new_time device \n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -M new_mmode device \n", program);
+    printf("       %s [-a address] [-d n] [-x] [-b baud_rate] [-P parity] [-S bit] [-1 | -2] [-z num_retries] [-j seconds] [-w seconds] -O new_pulse device\n\n", program);
     printf("Required:\n");
     printf("\tdevice\t\tSerial device (i.e. /dev/ttyUSB0)\n");
     printf("Connection parameters:\n");
@@ -725,7 +725,7 @@ void changeConfigHex(modbus_t *ctx, int address, int new_value, int restart)
         printf("New value %d for address 0x%X\n", new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error 1: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
         if (errno == EMBXILFUN) // Illegal function
             log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
         exit_error(ctx);
@@ -753,7 +753,7 @@ void changeConfigFloat(modbus_t *ctx, int address, int new_value, int restart, i
         printf("New value %d for address 0x%X\n", new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error 2: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
         if (errno == EMBXILFUN) // Illegal function
             log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
         exit_error(ctx);
@@ -776,7 +776,7 @@ void changeConfigBCD(modbus_t *ctx, int address, int new_value, int restart, int
         printf("New value %d for address 0x%X\n", u_new_value, address);
         if (restart == RESTART_TRUE) printf("You have to restart the meter for apply changes\n");
     } else {
-        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
+        log_message(DEBUG_STDERR | DEBUG_SYSLOG, "error 3: (%d) %s, %d, %d", errno, modbus_strerror(errno), n);
         if (errno == EMBXILFUN) // Illegal function
             log_message(DEBUG_STDERR | DEBUG_SYSLOG, "Tip: is the meter in set mode?");
         exit_error(ctx);
@@ -1033,7 +1033,7 @@ int main(int argc, char* argv[])
     int rexport_flag   = 0;
     int rimport_flag   = 0;
     int rtotal_flag    = 0;
-    int new_baud_rate  = 0;
+    int new_baud_rate  = -1;
     int new_parity_stop= -1;
     int compact_flag   = 0;
     int time_disp_flag = 0;
@@ -1086,69 +1086,87 @@ int main(int argc, char* argv[])
     opterr = 0;
 
     while ((c = getopt (argc, argv, "a:Ab:BcCd:D:efgij:lmM:nN:oOpP:qr:R:s:S:tTvw:W:xy:z:12")) != -1) {
+        log_message(debug_flag | DEBUG_SYSLOG, "optind = %d, argc = %d, c = %c, optarg = %s", optind, argc, c, optarg);
+
         switch (c)
         {
             case 'a':
                 device_address = atoi(optarg);
+
                 if (!(0 < device_address && device_address <= 247)) {
                     fprintf (stderr, "%s: Address must be between 1 and 247.\n", programName);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "device_address = %d", device_address);
                 break;
             case 'v':
                 volt_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "volt_flag = %d, count_param = %d", volt_flag, count_param);
                 break;
             case 'p':
                 power_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "power_flag = %d, count_param = %d", power_flag, count_param);
                 break;
             case 'c':
                 current_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "current_flag = %d, count_param = %d", current_flag, count_param);
                 break;
             case 'e':
                 export_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "export_flag = %d, count_param = %d", export_flag, count_param);
                 break;
             case 'i':
                 import_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "import_flag = %d, count_param = %d", import_flag, count_param);
                 count_param++;
                 break;
             case 't':
                 total_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "total_flag = %d, count_param = %d", total_flag, count_param);
                 break;
             case 'A':
                 rimport_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "rimport_flag = %d, count_param = %d", rimport_flag, count_param);
                 break;
             case 'B':
                 rexport_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "rexport_flag = %d, count_param = %d", rexport_flag, count_param);
                 break;
             case 'C':
                 rtotal_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "rtotal_flag = %d, count_param = %d", rtotal_flag, count_param);
                 break;
             case 'f':
                 freq_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "freq_flag = %d, count_param = %d", freq_flag, count_param);
                 break;
             case 'g':
                 pf_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "pf_flag = %d, count_param = %d", pf_flag, count_param);
                 break;
             case 'l':
                 apower_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "apower_flag = %d, count_param = %d", apower_flag, count_param);
                 break;
             case 'n':
                 rapower_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "rapower_flag = %d, count_param = %d", rapower_flag, count_param);
                 count_param++;
                 break;
             case 'o':
                 pangle_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "pangle_flag = %d, count_param = %d", pangle_flag, count_param);
                 count_param++;
                 break;
             case 'd':
@@ -1164,9 +1182,11 @@ int main(int argc, char* argv[])
                          fprintf (stderr, "%s: Debug value must be one of 0,1,2,3.\n", programName);
                          exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "debug_flag = %d", debug_flag);
                 break;
             case 'x':
                 trace_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "trace_flag = %d, count_param = %d", trace_flag, count_param);
                 break;
             case 'b':
                 speed = atoi(optarg);
@@ -1176,6 +1196,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: Baud Rate must be one of 1200, 2400, 4800, 9600\n", programName);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "speed = %d, count_param = %d", speed, count_param);
                 break;
             case 'P':
                 c_parity = strdup(optarg);
@@ -1189,6 +1210,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: Parity must be one of E, N, O\n", programName);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "c_parity = %s, count_param = %d", c_parity, count_param);
                 free(c_parity);
                 break;
             case 'S':
@@ -1199,6 +1221,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: Stop bits can be one of 1, 2\n", programName);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "bits = %d, count_param = %d", bits, count_param);
                 break;
             case 'r':
                 speed = atoi(optarg);
@@ -1219,6 +1242,7 @@ int main(int argc, char* argv[])
                         fprintf (stderr, "%s: Baud Rate must be one of 1200, 2400, 4800, 9600\n", programName);
                         exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "new_baud_rate = %d, count_param = %d", new_baud_rate, count_param);
                 break;
             case 'N':
                 new_parity_stop = atoi(optarg);
@@ -1226,6 +1250,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: New parity/stop (%d) out of range, 0-3.\n", programName, new_parity_stop);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "new_parity_stop = %s, count_param = %d", new_parity_stop, count_param);
                 break;
             case 's':
                 new_address = atoi(optarg);
@@ -1233,6 +1258,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: New address (%d) out of range, 1-247.\n", programName, new_address);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "new_address = %d, count_param = %d", new_address, count_param);
                 break;
             case 'R':
                 rotation_time_flag = 1;
@@ -1245,6 +1271,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: SDM220 display time composite parameter (%d) out of range, 0-9999.\n", programName, rotation_time);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "rotation_time_flag = %d, rotation_time = %d, count_param = %d", rotation_time_flag, rotation_time, count_param);
                 break;
             case 'M':
                 measurement_mode_flag = 1;
@@ -1253,6 +1280,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: New measurement mode (%d) out of range, 1-3.\n", programName, rotation_time);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "measurement_mode_flag = %d,  measurement_mode = %d, count_param = %d", measurement_mode_flag, measurement_mode, count_param);
                 break;
             case 'O':
                 pulse_flag = 1;
@@ -1261,18 +1289,23 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: New pulse mode (%d) out of range, 0-3.\n", programName, pulse_mode);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "pulse_flag = %d, rotation_mode = %d, count_param = %d", pulse_flag, pulse_mode, count_param);
                 break;
             case '1':
                 model = MODEL_120;
+                log_message(debug_flag | DEBUG_SYSLOG, "model = %d, count_param = %d", model, count_param);
                 break;
             case '2':
                 model = MODEL_220;
+                log_message(debug_flag | DEBUG_SYSLOG, "model = %d, count_param = %d", model, count_param);
                 break;
             case 'm':
                 metern_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "metern_flag = %d, count_param = %d", metern_flag, count_param);
                 break;
             case 'q':
                 compact_flag = 1;
+                log_message(debug_flag | DEBUG_SYSLOG, "compact_flag = %d, count_param = %d", compact_flag, count_param);
                 break;
             case 'z':
                 num_retries = atoi(optarg);
@@ -1280,6 +1313,7 @@ int main(int argc, char* argv[])
                     fprintf (stderr, "%s: num_retries (%d) out of range, 1-%d.\n", programName, num_retries, MAX_RETRIES);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "num_retries = %d, count_param = %d", num_retries, count_param);
                 break;
             case 'j':
                 resp_timeout = atoi(optarg);
@@ -1287,6 +1321,7 @@ int main(int argc, char* argv[])
                     fprintf(stderr, "%s: -j Response timeout (%lu) out of range, 0-500.\n",programName,(long unsigned)resp_timeout);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "resp_timeout = %d, count_param = %d", resp_timeout, count_param);
                 break;
             case 'y':
                 byte_timeout = atoi(optarg);
@@ -1294,6 +1329,7 @@ int main(int argc, char* argv[])
                     fprintf(stderr, "%s: -y Byte timeout (%lu) out of range, 1-500.\n",programName,(long unsigned)byte_timeout);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "byte_timeout = %d, count_param = %d", byte_timeout, count_param);
                 break;
             case 'w':
                 yLockWait = atoi(optarg);
@@ -1301,16 +1337,20 @@ int main(int argc, char* argv[])
                     fprintf(stderr, "%s: -w Lock Wait seconds (%d) out of range, 1-30.\n",programName,yLockWait);
                     exit(EXIT_FAILURE);
                 }
+                log_message(debug_flag | DEBUG_SYSLOG, "yLockWait = %d, count_param = %d", yLockWait, count_param);
                 break;
             case 'W':
                 settle_time = atoi(optarg);
+                log_message(debug_flag | DEBUG_SYSLOG, "settle_time = %d, count_param = %d", settle_time, count_param);
                 break;
             case 'D':
                 command_delay = atoi(optarg);
+                log_message(debug_flag | DEBUG_SYSLOG, "command_delay = %d, count_param = %d", command_delay, count_param);
                 break;
             case 'T':
                 time_disp_flag = 1;
                 count_param++;
+                log_message(debug_flag | DEBUG_SYSLOG, "time_disp_flag = %d, count_param = %d", time_disp_flag, count_param);
                 break;
             case '?':
                 if (isprint (optopt)) {
@@ -1489,6 +1529,8 @@ int main(int argc, char* argv[])
         exit_error(ctx);
     } else if (new_address > 0) {
 
+        log_message(DEBUG_STDERR, "new_address = %d > 0, count_param = %d", new_address, count_param);
+
         if (count_param > 0) {
             usage(programName);
             modbus_close(ctx);
@@ -1497,6 +1539,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Address
+            log_message(debug_flag, "Before change Address\n");
             changeConfigFloat(ctx, DEVICE_ID, new_address, RESTART_FALSE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
@@ -1506,6 +1549,8 @@ int main(int argc, char* argv[])
 
     } else if (new_baud_rate >= 0) {
 
+        log_message(DEBUG_STDERR, "new_address = %d > 0, count_param = %d", new_address, count_param);
+
         if (count_param > 0) {
             usage(programName);
             modbus_close(ctx);
@@ -1514,6 +1559,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Baud Rate
+            log_message(debug_flag, "Before change Baud\n");
             changeConfigFloat(ctx, BAUD_RATE, new_baud_rate, RESTART_FALSE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
@@ -1531,6 +1577,7 @@ int main(int argc, char* argv[])
             exit(EXIT_FAILURE);
         } else {
             // change Parity/Stop
+            log_message(debug_flag, "Before change Parity\n");
             changeConfigFloat(ctx, NPARSTOP, new_parity_stop, RESTART_TRUE, 2);
             modbus_close(ctx);
             modbus_free(ctx);
