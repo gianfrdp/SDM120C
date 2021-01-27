@@ -98,13 +98,13 @@ extern "C" {
 #define DEBUG_STDERR 1
 #define DEBUG_SYSLOG 2
 
-int debug_mask     = DEBUG_STDERR | DEBUG_SYSLOG; // Default, let pass all
+int debug_mask     = 0; //DEBUG_STDERR | DEBUG_SYSLOG; // Default, let pass all
 int debug_flag     = 0;
 int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5.4";
+const char *version     = "1.3.5.6";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -182,14 +182,14 @@ void usage(char* program) {
     printf("\t-W 1/1000 secs\tTime to wait for 485 line to settle. Default: 0ms\n");
     printf("\t-y 1/1000 secs\tSet timeout between every bytes (1-500). Default: disabled\n");
     printf("\t-d debug_level\tDebug (0=disable, 1=debug, 2=errors to syslog, 3=both)\n");
-    printf("\t\t\tDefault: Fatal errors to syslog + fatal errors to stderr\n");
+    printf("\t\t\tDefault: 0\n");
     printf("\t-x \t\tTrace (libmodbus debug on)\n");
 }
 
 /*--------------------------------------------------------------------------
     tv_diff
 ----------------------------------------------------------------------------*/
-long inline tv_diff(struct timeval const * const t1, struct timeval const * const t2)
+static long inline tv_diff(struct timeval const * const t1, struct timeval const * const t2)
 {
     struct timeval res;
     timersub(t1, t2, &res);
@@ -199,7 +199,7 @@ long inline tv_diff(struct timeval const * const t1, struct timeval const * cons
 /*--------------------------------------------------------------------------
         rnd_usleep
 ----------------------------------------------------------------------------*/
-long inline rnd_usleep(const useconds_t usecs)
+static long inline rnd_usleep(const useconds_t usecs)
 {
     long unsigned rnd10 = 10.0*rand()/(RAND_MAX+1.0) + 1;
     if (usleep(usecs*rnd10) == 0)
@@ -223,8 +223,7 @@ char* getCurTime()
     ltime = (struct tm *) localtime(&curTimeValue);
     gettimeofday(&_t, &tz);
 
-    strftime(CurTime,100,"%Y%m%d-%H:%M:%S",ltime);
-    sprintf(CurTime, "%s.%06d", CurTime,(int)_t.tv_usec);
+    sprintf(CurTime, "%04d%02d%02d-%02d:%02d:%02d.%06d", ltime->tm_year + 1900, ltime->tm_mon + 1, ltime->tm_mday, ltime->tm_hour, ltime->tm_min, ltime->tm_sec, (int)_t.tv_usec);
 
     return CurTime;
 }
@@ -261,7 +260,7 @@ void log_message(const int log, const char* format, ...) {
     
     if (log & debug_mask & DEBUG_STDERR) {
        fprintf(stderr, "%s: %s(%lu) ", getCurTime(), programName, PID);
-       fprintf(stderr, buffer);
+       fprintf(stderr, "%s", buffer);
        fprintf(stderr, "\n");
     }
     
@@ -270,11 +269,11 @@ void log_message(const int log, const char* format, ...) {
         if (!bCmdlineSyslogged) { 
             char versionbuffer[strlen(programName)+strlen(version)+3];
             snprintf(versionbuffer, strlen(programName)+strlen(version)+3, "%s v%s", programName, version);
-            syslog(LOG_INFO, versionbuffer);
+            syslog(LOG_INFO, "%s", versionbuffer);
             char parent[80];
             snprintf(parent, sizeof(parent), "parent: %s(%lu)", PARENTCOMMAND, PPID);
-            syslog(LOG_INFO, parent);
-            syslog(LOG_INFO, cmdline);
+            syslog(LOG_INFO, "%s", parent);
+            syslog(LOG_INFO, "%s", cmdline);
             bCmdlineSyslogged++;
         }
         syslog(LOG_INFO, buffer);
