@@ -104,7 +104,7 @@ int trace_flag     = 0;
 
 int metern_flag    = 0;
 
-const char *version     = "1.3.5.6";
+const char *version     = "1.3.5.7";
 char *programName;
 const char *ttyLCKloc   = "/var/lock/LCK.."; /* location and prefix of serial port lock file */
 
@@ -819,7 +819,7 @@ void *getPIDcmd(long unsigned int PID)
     // Get 1st string (command)
     cmdLen=strlen(buffer)+1;
     if((COMMAND = getMemPtr(cmdLen)) != NULL ) {
-        strncpy(COMMAND, buffer, cmdLen);
+        memcpy(COMMAND, buffer, cmdLen);
         COMMAND[cmdLen-1] = '\0';
     }
 
